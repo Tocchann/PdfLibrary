@@ -56,6 +56,7 @@ internal static class PdfDocumentReader
         if (trailer is not null)
         {
             var trailerDict = ParseDictionary(trailer.Groups["body"].Value);
+            document.SetEncryptionState(trailerDict.ContainsKey("Encrypt"));
             if (trailerDict.TryGetValue("Info", out var infoValue) && infoValue is PdfReference infoReference && objects.TryGetValue(infoReference.ObjectNumber, out var infoObject))
             {
                 document.Info = infoObject;

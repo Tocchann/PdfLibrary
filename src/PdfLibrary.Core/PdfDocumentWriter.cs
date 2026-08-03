@@ -24,6 +24,11 @@ internal static class PdfDocumentWriter
 
         if (options.Mode == PdfSaveMode.Append && document.OriginalBytes is not null)
         {
+            if (document.OriginalStartXref is null)
+            {
+                throw new InvalidOperationException("追記モードでは startxref が存在する入力文書が必要です。");
+            }
+
             SaveAppend(document, stream);
             return;
         }
@@ -37,8 +42,9 @@ internal static class PdfDocumentWriter
         writer.WriteLine("%PDF-1.7");
         writer.Flush();
 
+        var orderedObjects = document.Objects.OrderBy(item => item.ObjectNumber).ToArray();
         var offsets = new Dictionary<int, long>();
-        foreach (var indirect in document.Objects)
+        foreach (var indirect in orderedObjects)
         {
             offsets[indirect.ObjectNumber] = stream.Position;
             writer.Write(indirect.ObjectNumber);
@@ -50,29 +56,8 @@ internal static class PdfDocumentWriter
             writer.WriteLine("endobj");
             writer.Flush();
         }
-
         var xrefStart = stream.Position;
-        writer.WriteLine("xref");
-        writer.WriteLine($"0 {document.Objects.Count + 1}");
-        writer.WriteLine("0000000000 65535 f ");
-        foreach (var indirect in document.Objects)
-        {
-            var offset = offsets[indirect.ObjectNumber];
-            writer.WriteLine($"{offset:0000000000} {indirect.GenerationNumber:00000} n ");
-        }
-
-        writer.WriteLine("trailer");
-        writer.WriteLine("<<");
-        writer.WriteLine($"/Size {document.Objects.Count + 1}");
-        writer.WriteLine($"/Root {document.Catalog.ObjectNumber} {document.Catalog.GenerationNumber} R");
-        if (document.Info is not null)
-        {
-            writer.WriteLine($"/Info {document.Info.ObjectNumber} {document.Info.GenerationNumber} R");
-        }
-        writer.WriteLine(">>");
-        writer.WriteLine("startxref");
-        writer.WriteLine(xrefStart);
-        writer.WriteLine("%%EOF");
+        WriteXrefAndTrailer(document, writer, offsets, xrefStart, includePrev: false);
         writer.Flush();
     }
 
@@ -81,8 +66,9 @@ internal static class PdfDocumentWriter
         stream.Write(document.OriginalBytes!, 0, document.OriginalBytes!.Length);
 
         using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true);
+        var orderedObjects = document.Objects.OrderBy(item => item.ObjectNumber).ToArray();
         var offsets = new Dictionary<int, long>();
-        foreach (var indirect in document.Objects)
+        foreach (var indirect in orderedObjects)
         {
             offsets[indirect.ObjectNumber] = stream.Position;
             writer.WriteLine();
@@ -97,29 +83,47 @@ internal static class PdfDocumentWriter
         }
 
         var xrefStart = stream.Position;
+        WriteXrefAndTrailer(document, writer, offsets, xrefStart, includePrev: true);
+        writer.Flush();
+    }
+
+    private static void WriteXrefAndTrailer(PdfDocument document, StreamWriter writer, Dictionary<int, long> offsets, long xrefStart, bool includePrev)
+    {
+        var generationByObjectNumber = document.Objects.ToDictionary(item => item.ObjectNumber, item => item.GenerationNumber);
+        var maxObjectNumber = document.Objects.Count == 0 ? 0 : document.Objects.Max(item => item.ObjectNumber);
+        var size = maxObjectNumber + 1;
+
         writer.WriteLine("xref");
-        writer.WriteLine($"0 {document.Objects.Count + 1}");
+        writer.WriteLine($"0 {size}");
         writer.WriteLine("0000000000 65535 f ");
-        foreach (var indirect in document.Objects)
+        for (var objectNumber = 1; objectNumber <= maxObjectNumber; objectNumber++)
         {
-            var offset = offsets[indirect.ObjectNumber];
-            writer.WriteLine($"{offset:0000000000} {indirect.GenerationNumber:00000} n ");
+            if (offsets.TryGetValue(objectNumber, out var offset))
+            {
+                var generation = generationByObjectNumber[objectNumber];
+                writer.WriteLine($"{offset:0000000000} {generation:00000} n ");
+                continue;
+            }
+
+            writer.WriteLine("0000000000 65535 f ");
         }
 
         writer.WriteLine("trailer");
         writer.WriteLine("<<");
-        writer.WriteLine($"/Size {document.Objects.Count + 1}");
+        writer.WriteLine($"/Size {size}");
         writer.WriteLine($"/Root {document.Catalog.ObjectNumber} {document.Catalog.GenerationNumber} R");
         if (document.Info is not null)
         {
             writer.WriteLine($"/Info {document.Info.ObjectNumber} {document.Info.GenerationNumber} R");
         }
-        writer.WriteLine($"/Prev {document.OriginalStartXref ?? 0}");
+        if (includePrev)
+        {
+            writer.WriteLine($"/Prev {document.OriginalStartXref}");
+        }
         writer.WriteLine(">>");
         writer.WriteLine("startxref");
         writer.WriteLine(xrefStart);
         writer.WriteLine("%%EOF");
-        writer.Flush();
     }
 
     private static void WriteValue(StreamWriter writer, PdfValue value)

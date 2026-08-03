@@ -36,6 +36,8 @@ public sealed class PdfDocument
 
     public long? OriginalStartXref { get; private set; }
 
+    public bool HasEncryption { get; private set; }
+
     public PdfDictionary CatalogDictionary => (PdfDictionary)Catalog.Value;
 
     public PdfDictionary PagesDictionary => (PdfDictionary)Pages.Value;
@@ -101,9 +103,14 @@ public sealed class PdfDocument
         OriginalStartXref = startXref;
     }
 
+    internal void SetEncryptionState(bool hasEncryption)
+    {
+        HasEncryption = hasEncryption;
+    }
+
     private PdfIndirectObject AddObjectCore(PdfValue value)
     {
-        var objectNumber = _objects.Count + 1;
+        var objectNumber = _objects.Count == 0 ? 1 : _objects.Max(item => item.ObjectNumber) + 1;
         var indirect = new PdfIndirectObject(objectNumber, 0, value);
         _objects.Add(indirect);
         return indirect;
