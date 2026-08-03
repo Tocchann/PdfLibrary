@@ -29,6 +29,7 @@ public sealed class PdfPreSaveValidator
         }
 
         var objectNumberSet = document.Objects.Select(item => item.ObjectNumber).ToHashSet();
+        var objectsByReference = document.Objects.ToDictionary(item => (item.ObjectNumber, item.GenerationNumber));
         foreach (var indirect in document.Objects)
         {
             foreach (var reference in EnumerateReferences(indirect.Value))
@@ -50,6 +51,8 @@ public sealed class PdfPreSaveValidator
         {
             issues.Add(new PdfValidationIssue("CHK-006", "暗号化文書の編集は未対応です。"));
         }
+
+        ValidateOutlines(document, objectsByReference, issues);
 
         return issues;
     }
@@ -178,4 +181,147 @@ public sealed class PdfPreSaveValidator
             }
         }
     }
+
+    private static void ValidateOutlines(
+        PdfDocument document,
+        IReadOnlyDictionary<(int ObjectNumber, int GenerationNumber), PdfIndirectObject> objectsByReference,
+        List<PdfValidationIssue> issues)
+    {
+        if (!(document.CatalogDictionary.TryGetValue("Outlines", out var outlinesValue) && outlinesValue is PdfReference outlinesReference))
+        {
+            return;
+        }
+
+        if (!TryGetObject(objectsByReference, outlinesReference, out var outlinesObject) || outlinesObject is null)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Catalog から Outlines への参照が解決できません。"));
+            return;
+        }
+
+        if (outlinesObject.Value is not PdfDictionary outlinesDictionary)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Outlines ルートが辞書ではありません。"));
+            return;
+        }
+
+        if (!(outlinesDictionary.TryGetValue("Type", out var typeValue) &&
+              typeValue is PdfName typeName &&
+              string.Equals(typeName.Value, "Outlines", StringComparison.Ordinal)))
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Outlines ルートの /Type が不正です。"));
+            return;
+        }
+
+        var visited = new HashSet<(int ObjectNumber, int GenerationNumber)>();
+        var totalCount = ValidateOutlineChain(outlinesDictionary, outlinesReference, objectsByReference, visited, issues);
+
+        if (outlinesDictionary.TryGetValue("Count", out var countValue) &&
+            countValue is PdfNumber countNumber &&
+            (int)countNumber.Value != totalCount)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Outlines ルートの /Count が実際の件数と一致しません。"));
+        }
+    }
+
+    private static int ValidateOutlineChain(
+        PdfDictionary parentDictionary,
+        PdfReference parentReference,
+        IReadOnlyDictionary<(int ObjectNumber, int GenerationNumber), PdfIndirectObject> objectsByReference,
+        HashSet<(int ObjectNumber, int GenerationNumber)> visited,
+        List<PdfValidationIssue> issues)
+    {
+        var totalCount = 0;
+        var currentReference = GetFirstReference(parentDictionary);
+        PdfReference? previousReference = null;
+
+        while (currentReference is not null)
+        {
+            if (!visited.Add((currentReference.ObjectNumber, currentReference.GenerationNumber)))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおりの循環参照が検出されました: {currentReference.ObjectNumber} {currentReference.GenerationNumber} R"));
+                return totalCount;
+            }
+
+            if (!TryGetObject(objectsByReference, currentReference, out var currentObject) || currentObject is null)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R が解決できません。"));
+                return totalCount;
+            }
+
+            if (currentObject.Value is not PdfDictionary currentDictionary)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R が辞書ではありません。"));
+                return totalCount;
+            }
+
+            if (!(currentDictionary.TryGetValue("Title", out var titleValue) && titleValue is PdfString))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R に /Title がありません。"));
+            }
+
+            if (!(currentDictionary.TryGetValue("Parent", out var parentValue) &&
+                  parentValue is PdfReference actualParent &&
+                  actualParent.Equals(parentReference)))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の /Parent が不正です。"));
+            }
+
+            if (previousReference is null)
+            {
+                if (currentDictionary.ContainsKey("Prev"))
+                {
+                    issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の先頭要素に /Prev があります。"));
+                }
+            }
+            else if (!(currentDictionary.TryGetValue("Prev", out var prevValue) &&
+                       prevValue is PdfReference previousValueReference &&
+                       previousValueReference.Equals(previousReference)))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の /Prev が不正です。"));
+            }
+
+            var childCount = 0;
+            var childFirstReference = GetFirstReference(currentDictionary);
+            if (childFirstReference is not null)
+            {
+                if (!(currentDictionary.TryGetValue("Last", out var lastValue) && lastValue is PdfReference))
+                {
+                    issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の /Last がありません。"));
+                }
+
+                if (!(currentDictionary.TryGetValue("Count", out var countValue) &&
+                      countValue is PdfNumber countNumber))
+                {
+                    issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の /Count がありません。"));
+                }
+
+                childCount = ValidateOutlineChain(currentDictionary, currentReference, objectsByReference, visited, issues);
+
+                if (currentDictionary.TryGetValue("Count", out var validatedCountValue) &&
+                    validatedCountValue is PdfNumber validatedCountNumber &&
+                    (int)validatedCountNumber.Value != childCount)
+                {
+                    issues.Add(new PdfValidationIssue("CHK-003", $"しおり項目 {currentReference.ObjectNumber} {currentReference.GenerationNumber} R の /Count が実際の子孫数と一致しません。"));
+                }
+            }
+
+            totalCount += 1 + childCount;
+            previousReference = currentReference;
+            currentReference = GetNextReference(currentDictionary);
+        }
+
+        return totalCount;
+    }
+
+    private static PdfReference? GetFirstReference(PdfDictionary dictionary)
+        => dictionary.TryGetValue("First", out var firstValue) && firstValue is PdfReference firstReference ? firstReference : null;
+
+    private static PdfReference? GetNextReference(PdfDictionary dictionary)
+        => dictionary.TryGetValue("Next", out var nextValue) && nextValue is PdfReference nextReference ? nextReference : null;
+
+    private static bool TryGetObject(
+        IReadOnlyDictionary<(int ObjectNumber, int GenerationNumber), PdfIndirectObject> objectsByReference,
+        PdfReference reference,
+        out PdfIndirectObject? indirectObject)
+        => objectsByReference.TryGetValue((reference.ObjectNumber, reference.GenerationNumber), out indirectObject);
 }

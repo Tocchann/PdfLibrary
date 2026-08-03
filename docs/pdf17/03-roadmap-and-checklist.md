@@ -13,14 +13,14 @@
 
 | 分類 | チェック項目 | 参照章 | ステータス |
 |---|---|---|---|
-| Syntax | 文字列/名前/辞書/ストリームの正規化 | 7.3 | Pending |
-| Save | xref/trailer/startxref/EOF 正当性 | 7.5.4, 7.5.5 | Pending |
-| Save | 増分更新の `/Prev` 連鎖正当性 | 7.5.6 | Pending |
-| Structure | Catalog/Page Tree の参照整合性 | 7.7.2, 7.7.3 | Pending |
-| Bookmark | Outline 階層整合性 | 12.3.3 | Pending |
-| Annotation | Subtype別の必須キー検証 | 12.5.6 | Pending |
+| Syntax | 文字列/名前/辞書/ストリームの正規化 | 7.3 | 実装済み |
+| Save | xref/trailer/startxref/EOF 正当性 | 7.5.4, 7.5.5 | 実装済み |
+| Save | 増分更新の `/Prev` 連鎖正当性 | 7.5.6 | 実装済み |
+| Structure | Catalog/Page Tree の参照整合性 | 7.7.2, 7.7.3 | 実装済み |
+| Bookmark | Outline 階層整合性 | 12.3.3 | 実装済み |
+| Annotation | Subtype別の必須キー検証 | 12.5.6 | 実装済み |
 | Form | フィールド木・Widget連携 | 12.7 | Pending |
-| Signature | ByteRange/Contents の整合性 | 12.8 | Pending |
+| Signature | ByteRange/Contents の整合性 | 12.8 | 実装済み |
 | Metadata | Info/XMP 同期方針 | 14.3 | Pending |
 
 ## 3. 相互運用チェック（実装後）
