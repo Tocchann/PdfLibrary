@@ -6,7 +6,7 @@
 |---|---|---|---|
 | OBJ-CATALOG | Document Catalog | `/Type /Catalog`, `/Pages` | ルートとして一意 |
 | OBJ-PAGE-TREE | Page Tree Node | `/Type /Pages`, `/Kids`, `/Count` | `Count == 子孫Page総数` |
-| OBJ-PAGE | Page Object | `/Type /Page`, `/Parent`, `/MediaBox` | Parent必須、継承解決可能 |
+| OBJ-PAGE | Page Object | `/Type /Page`, `/Parent`（`/MediaBox` は継承可） | Parent必須、`/MediaBox` 未設定時は継承解決可能 |
 | OBJ-ANNOT | Annotation | `/Subtype`, `/Rect` | Subtypeごとの必須キー充足 |
 | OBJ-OUTLINE | Outline Item | `/Title`, `/Parent`, (`/First`,`/Last` 任意) | 兄弟/親リンクの循環禁止 |
 | OBJ-ACROFORM | AcroForm Dictionary | `/Fields` | フィールド木の整合性維持 |
@@ -16,7 +16,7 @@
 
 1. 変更開始時に「変更対象間接オブジェクトID集合」を確定する。  
 2. 新規オブジェクトは未使用番号を採番し、世代番号は既定 0。  
-3. 既存更新オブジェクトは世代番号を適切に更新し、旧xrefを破壊しない。  
+3. 既存更新オブジェクトは原則として世代番号を据え置き、xrefは旧エントリを保持したまま新エントリを追記する（世代番号の増加は解放済みオブジェクト番号の再利用時などに限定）。  
 4. 保存時は `xref + trailer + startxref + %%EOF` を必ず追記再構成する。  
 5. 増分更新時は trailer の `/Prev` を直前xrefへ接続する。  
 6. クロスリファレンスストリーム採用時も非対応リーダ互換を意識する（7.5.8.4）。
