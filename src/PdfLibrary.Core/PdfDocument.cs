@@ -201,7 +201,15 @@ public sealed class PdfDocument
             return true;
         }
 
-        return RemoveObjectCore(Metadata.Reference);
+        var metadataReferenceToRemove = Metadata.Reference;
+        Metadata = null;
+        CatalogDictionary.Remove("Metadata");
+        if (!IsReferencedElsewhere(metadataReferenceToRemove, metadataReferenceToRemove.ObjectNumber))
+        {
+            RemoveObjectCore(metadataReferenceToRemove);
+        }
+
+        return true;
     }
 
     /// <summary>

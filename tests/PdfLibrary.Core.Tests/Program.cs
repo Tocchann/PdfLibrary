@@ -648,6 +648,23 @@ internal static class Program
         Assert.True(!removeDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が削除されていません。");
         Assert.True(!removeDoc.ClearXmpMetadata(), "Metadata がない状態で ClearXmpMetadata が true を返しました。");
 
+        // 他オブジェクトから参照される Metadata は、状態解除のみ行い実体削除しないことを確認
+        var sharedDoc = PdfDocument.Create();
+        sharedDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        sharedDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<shared/>"));
+        var sharedMetadata = sharedDoc.Metadata!;
+        sharedDoc.AddObject(new PdfDictionary
+        {
+            ["MetaRef"] = sharedMetadata.Reference,
+        });
+        Assert.True(sharedDoc.ClearXmpMetadata(), "共有参照がある Metadata の状態解除が true を返しません。");
+        Assert.True(sharedDoc.Metadata is null, "共有参照時に Metadata 状態がクリアされていません。");
+        Assert.True(!sharedDoc.CatalogDictionary.ContainsKey("Metadata"), "共有参照時に /Catalog/Metadata が削除されていません。");
+        Assert.True(sharedDoc.Objects.Any(item => item.ObjectNumber == sharedMetadata.ObjectNumber), "共有参照がある Metadata 実体が削除されました。");
+
         // Metadata 状態がなくても /Catalog/Metadata の孤立参照を掃除した場合は true を返すことを確認
         var orphanDoc = PdfDocument.Create();
         orphanDoc.AddPage(new PdfDictionary
