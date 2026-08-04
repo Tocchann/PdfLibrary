@@ -21,7 +21,7 @@
 | Annotation | Subtype別の必須キー検証 | 12.5.6 | 実装済み |
 | Form | フィールド木・Widget連携 | 12.7 | 実装済み |
 | Signature | ByteRange/Contents の整合性 | 12.8 | 実装済み |
-| Metadata | Info/XMP 同期方針 | 14.3 | Pending |
+| Metadata | Info/XMP 同期方針 | 14.3 | 実装済み |
 
 ### Wave 4 SIGN-001 実装詳細
 
@@ -39,7 +39,24 @@
 
 **プロジェクト**: `PdfLibrary.Extensions.Signing`（`PdfLibrary.Core` に依存）
 
-## 3. 相互運用チェック（実装後）
+### XMP Metadata 実装詳細
+
+**実装済み（`PdfLibrary.Core`）**:
+- `PdfDocument.GetXmpMetadata()` — `/Catalog/Metadata` ストリームのバイト列を返す
+- `PdfDocument.SetXmpMetadata(byte[])` — XMP XML バイト列を Metadata ストリームとして設定
+- `PdfDocument.SyncXmpFromInfo()` — `/Info` 辞書から最小限の XMP パケットを自動生成して設定
+- `PdfDocumentReader` — 既存 PDF の `/Catalog/Metadata` 読み込み
+
+**XMP 自動同期の方針**:
+- 自動同期（`SetInfo` 時に自動で XMP も更新）は実装しない
+- 明示的に `SyncXmpFromInfo()` を呼ぶことで同期する設計（過剰な自動処理を避ける）
+
+**未対応**:
+- XMP のパース・編集（ライブラリは raw バイト列で扱う）
+- PDF 日付文字列（`D:YYYYMMDD...`）の ISO 8601 への変換
+- XMP Rights Management / Dublin Core 以外の高度なスキーマ
+
+
 
 | 対象 | 観点 |
 |---|---|

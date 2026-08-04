@@ -28,6 +28,8 @@ public sealed class PdfDocument
 
     public PdfIndirectObject? Info { get; internal set; }
 
+    public PdfIndirectObject? Metadata { get; private set; }
+
     public PdfIndirectObject? Outlines { get; private set; }
 
     public PdfIndirectObject? AcroForm { get; private set; }
@@ -98,6 +100,269 @@ public sealed class PdfDocument
         Info = AddObjectCore(info);
         return Info;
     }
+
+    /// <summary>XMP Metadata ストリームのバイト列（UTF-8 XML）を返します。存在しない場合は null。</summary>
+    public byte[]? GetXmpMetadata()
+    {
+        if (Metadata?.Value is PdfStream stream)
+        {
+            if (TryGetLengthFromStream(stream, out var length))
+            {
+                if (length >= 0 && length <= stream.Data.Length)
+                {
+                    var sliced = new byte[length];
+                    Array.Copy(stream.Data, 0, sliced, 0, length);
+                    return sliced;
+                }
+            }
+
+            return (byte[])stream.Data.Clone();
+        }
+
+        return null;
+    }
+
+    /// <summary>XMP Metadata ストリームを設定します。xmpData は UTF-8 エンコードの XMP パケット XML です。</summary>
+    public void SetXmpMetadata(byte[] xmpData)
+    {
+        ArgumentNullException.ThrowIfNull(xmpData);
+        var metadataBytes = (byte[])xmpData.Clone();
+
+        var streamDict = new PdfDictionary
+        {
+            ["Type"] = new PdfName("Metadata"),
+            ["Subtype"] = new PdfName("XML"),
+        };
+
+        PdfIndirectObject? targetMetadata = Metadata;
+        PdfReference? previousCatalogMetadataReference = null;
+        if (targetMetadata is null &&
+            CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
+            metadataValue is PdfReference metadataReference &&
+            TryGetObject(metadataReference, out var metadataObject) &&
+            metadataObject?.Value is PdfStream existingStream &&
+            existingStream.Dictionary.TryGetValue("Type", out var typeValue) &&
+            typeValue is PdfName typeName &&
+            string.Equals(typeName.Value, "Metadata", StringComparison.Ordinal) &&
+            existingStream.Dictionary.TryGetValue("Subtype", out var subtypeValue) &&
+            subtypeValue is PdfName subtypeName &&
+            string.Equals(subtypeName.Value, "XML", StringComparison.Ordinal) &&
+            !existingStream.Dictionary.ContainsKey("Filter") &&
+            !existingStream.Dictionary.ContainsKey("DecodeParms"))
+        {
+            targetMetadata = metadataObject;
+            Metadata = metadataObject;
+            previousCatalogMetadataReference = metadataReference;
+        }
+        else if (targetMetadata is null &&
+                 CatalogDictionary.TryGetValue("Metadata", out var existingMetadataValue) &&
+                 existingMetadataValue is PdfReference existingMetadataReference)
+        {
+            previousCatalogMetadataReference = existingMetadataReference;
+        }
+
+        if (targetMetadata is null)
+        {
+            targetMetadata = AddObjectCore(new PdfStream(streamDict, metadataBytes));
+            Metadata = targetMetadata;
+        }
+        else
+        {
+            targetMetadata.Value = new PdfStream(streamDict, metadataBytes);
+        }
+
+        CatalogDictionary["Metadata"] = targetMetadata.Reference;
+        if (previousCatalogMetadataReference is not null &&
+            !previousCatalogMetadataReference.Equals(targetMetadata.Reference) &&
+            !IsReferencedElsewhere(previousCatalogMetadataReference, previousCatalogMetadataReference.ObjectNumber))
+        {
+            RemoveObjectCore(previousCatalogMetadataReference);
+        }
+    }
+
+    /// <summary>XMP Metadata ストリームを削除します。存在した場合は true を返します。</summary>
+    public bool ClearXmpMetadata()
+    {
+        if (Metadata is null)
+        {
+            if (!(CatalogDictionary.TryGetValue("Metadata", out var metadataValue) && metadataValue is PdfReference metadataReference))
+            {
+                return false;
+            }
+
+            CatalogDictionary.Remove("Metadata");
+            if (TryGetObject(metadataReference, out var metadataObject) &&
+                metadataObject is not null &&
+                !IsReferencedElsewhere(metadataReference, metadataReference.ObjectNumber))
+            {
+                RemoveObjectCore(metadataReference);
+            }
+
+            return true;
+        }
+
+        var metadataReferenceToRemove = Metadata.Reference;
+        Metadata = null;
+        CatalogDictionary.Remove("Metadata");
+        if (!IsReferencedElsewhere(metadataReferenceToRemove, metadataReferenceToRemove.ObjectNumber))
+        {
+            RemoveObjectCore(metadataReferenceToRemove);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// /Info 辞書の内容から最小限の XMP パケットを生成して SetXmpMetadata() を呼び出します。
+    /// Info が設定されていない場合は何もしません。
+    /// </summary>
+    public void SyncXmpFromInfo()
+    {
+        if (Info?.Value is not PdfDictionary infoDict)
+        {
+            return;
+        }
+
+        var xml = BuildMinimalXmp(infoDict);
+        SetXmpMetadata(System.Text.Encoding.UTF8.GetBytes(xml));
+    }
+
+    private static string BuildMinimalXmp(PdfDictionary info)
+    {
+        static string? GetStr(PdfDictionary d, string key)
+        {
+            if (!d.TryGetValue(key, out var value))
+            {
+                return null;
+            }
+
+            return value switch
+            {
+                PdfString s => s.Value,
+                PdfHexString hex => DecodePdfHexText(hex.Data),
+                _ => null,
+            };
+        }
+
+        var title = GetStr(info, "Title");
+        var author = GetStr(info, "Author");
+        var subject = GetStr(info, "Subject");
+        var keywords = GetStr(info, "Keywords");
+        var creator = GetStr(info, "Creator");
+        var producer = GetStr(info, "Producer");
+        var creationDate = GetStr(info, "CreationDate");
+        var modDate = GetStr(info, "ModDate");
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
+        sb.AppendLine("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">");
+        sb.AppendLine("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">");
+        sb.AppendLine("    <rdf:Description rdf:about=\"\"");
+        sb.AppendLine("        xmlns:dc=\"http://purl.org/dc/elements/1.1/\"");
+        sb.AppendLine("        xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"");
+        sb.AppendLine("        xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">");
+
+        if (title is not null)
+        {
+            sb.AppendLine($"      <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{EscapeXml(title)}</rdf:li></rdf:Alt></dc:title>");
+        }
+
+        if (author is not null)
+        {
+            sb.AppendLine($"      <dc:creator><rdf:Seq><rdf:li>{EscapeXml(author)}</rdf:li></rdf:Seq></dc:creator>");
+        }
+
+        if (subject is not null)
+        {
+            sb.AppendLine($"      <dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">{EscapeXml(subject)}</rdf:li></rdf:Alt></dc:description>");
+        }
+
+        if (keywords is not null)
+        {
+            sb.AppendLine($"      <pdf:Keywords>{EscapeXml(keywords)}</pdf:Keywords>");
+        }
+
+        if (creator is not null)
+        {
+            sb.AppendLine($"      <xmp:CreatorTool>{EscapeXml(creator)}</xmp:CreatorTool>");
+        }
+
+        if (producer is not null)
+        {
+            sb.AppendLine($"      <pdf:Producer>{EscapeXml(producer)}</pdf:Producer>");
+        }
+
+        if (creationDate is not null && IsIso8601Date(creationDate))
+        {
+            sb.AppendLine($"      <xmp:CreateDate>{EscapeXml(creationDate)}</xmp:CreateDate>");
+        }
+
+        if (modDate is not null && IsIso8601Date(modDate))
+        {
+            sb.AppendLine($"      <xmp:ModifyDate>{EscapeXml(modDate)}</xmp:ModifyDate>");
+        }
+
+        sb.AppendLine("    </rdf:Description>");
+        sb.AppendLine("  </rdf:RDF>");
+        sb.AppendLine("</x:xmpmeta>");
+        sb.AppendLine("<?xpacket end=\"w\"?>");
+
+        return sb.ToString();
+    }
+
+    private static string DecodePdfHexText(byte[] data)
+    {
+        if (data.Length >= 2)
+        {
+            if (data[0] == 0xFE && data[1] == 0xFF)
+            {
+                return System.Text.Encoding.BigEndianUnicode.GetString(data, 2, data.Length - 2);
+            }
+
+            if (data[0] == 0xFF && data[1] == 0xFE)
+            {
+                return System.Text.Encoding.Unicode.GetString(data, 2, data.Length - 2);
+            }
+        }
+
+        return System.Text.Encoding.UTF8.GetString(data);
+    }
+
+    private static bool IsIso8601Date(string value)
+        => DateTimeOffset.TryParseExact(
+            value,
+            ["yyyy-MM-dd", "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _);
+
+    private bool TryGetLengthFromStream(PdfStream stream, out int length)
+    {
+        length = 0;
+        if (!stream.Dictionary.TryGetValue("Length", out var lengthValue))
+        {
+            return false;
+        }
+
+        if (lengthValue is PdfNumber directLength)
+        {
+            length = (int)directLength.Value;
+            return true;
+        }
+
+        if (lengthValue is PdfReference lengthReference &&
+            TryGetObject(lengthReference, out var lengthObject) &&
+            lengthObject?.Value is PdfNumber indirectLength)
+        {
+            length = (int)indirectLength.Value;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string EscapeXml(string value)
+        => value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     public PdfIndirectObject AddAnnotation(int pageIndex, PdfDictionary annotationDictionary)
     {
@@ -263,6 +528,11 @@ public sealed class PdfDocument
     internal void SetEmbeddedFilesNameTreeState(PdfIndirectObject? nameTree)
     {
         EmbeddedFilesNameTree = nameTree;
+    }
+
+    internal void SetMetadataState(PdfIndirectObject? metadata)
+    {
+        Metadata = metadata;
     }
 
     public PdfIndirectObject AddFormField(PdfFormField field)
@@ -736,6 +1006,12 @@ public sealed class PdfDocument
         if (EmbeddedFilesNameTree is not null && EmbeddedFilesNameTree.Reference.Equals(reference))
         {
             EmbeddedFilesNameTree = null;
+        }
+
+        if (Metadata is not null && Metadata.Reference.Equals(reference))
+        {
+            CatalogDictionary.Remove("Metadata");
+            Metadata = null;
         }
 
         return true;
