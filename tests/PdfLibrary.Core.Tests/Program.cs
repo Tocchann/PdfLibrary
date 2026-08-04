@@ -466,8 +466,11 @@ internal static class Program
 
         var retrieved = xmpDoc.GetXmpMetadata();
         Assert.True(retrieved is not null, "SetXmpMetadata 後に GetXmpMetadata が null を返しました。");
-        Assert.True(retrieved!.SequenceEqual(xmpXml), "GetXmpMetadata のデータが一致しません。");
+        var retrievedBytes = retrieved!;
+        Assert.True(retrievedBytes.SequenceEqual(xmpXml), "GetXmpMetadata のデータが一致しません。");
         Assert.True(xmpDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が設定されていません。");
+        retrievedBytes[0] ^= 0x01;
+        Assert.True(xmpDoc.GetXmpMetadata()!.SequenceEqual(xmpXml), "GetXmpMetadata が内部配列を露出しています。");
 
         // 保存 → 読み込み round-trip
         var xmpBytes = xmpDoc.Save();
@@ -516,6 +519,25 @@ internal static class Program
         var updatedXml = Encoding.UTF8.GetBytes("<updated/>");
         xmpDoc.SetXmpMetadata(updatedXml);
         Assert.True(xmpDoc.GetXmpMetadata()!.SequenceEqual(updatedXml), "SetXmpMetadata の上書きが反映されていません。");
+        updatedXml[0] = (byte)'X';
+        Assert.True(Encoding.UTF8.GetString(xmpDoc.GetXmpMetadata()!).StartsWith("<updated/>", StringComparison.Ordinal), "SetXmpMetadata が入力配列を保持しています。");
+
+        // Metadata オブジェクト削除時に /Catalog/Metadata 参照も掃除されることを確認
+        var removeDoc = PdfDocument.Create();
+        removeDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        removeDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<meta/>"));
+        var metadataRef = removeDoc.Metadata!.Reference;
+        var removeMethod = typeof(PdfDocument).GetMethod("RemoveObjectCore", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.True(removeMethod is not null, "RemoveObjectCore を取得できません。");
+        var removed = (bool)removeMethod!.Invoke(removeDoc, [metadataRef])!;
+        Assert.True(removed, "Metadata オブジェクトの削除に失敗しました。");
+        Assert.True(removeDoc.Metadata is null, "Metadata 状態がクリアされていません。");
+        Assert.True(!removeDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が削除されていません。");
+
+        Assert.True(syncedText.Contains("begin=\"\uFEFF\"", StringComparison.Ordinal), "xpacket begin に UTF-8 BOM 文字が設定されていません。");
     }
 }
 

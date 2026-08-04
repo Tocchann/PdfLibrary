@@ -106,7 +106,7 @@ public sealed class PdfDocument
     {
         if (Metadata?.Value is PdfStream stream)
         {
-            return stream.Data;
+            return (byte[])stream.Data.Clone();
         }
 
         return null;
@@ -116,6 +116,7 @@ public sealed class PdfDocument
     public void SetXmpMetadata(byte[] xmpData)
     {
         ArgumentNullException.ThrowIfNull(xmpData);
+        var metadataBytes = (byte[])xmpData.Clone();
 
         var streamDict = new PdfDictionary
         {
@@ -125,11 +126,11 @@ public sealed class PdfDocument
 
         if (Metadata is not null)
         {
-            Metadata.Value = new PdfStream(streamDict, xmpData);
+            Metadata.Value = new PdfStream(streamDict, metadataBytes);
         }
         else
         {
-            Metadata = AddObjectCore(new PdfStream(streamDict, xmpData));
+            Metadata = AddObjectCore(new PdfStream(streamDict, metadataBytes));
             CatalogDictionary["Metadata"] = Metadata.Reference;
         }
     }
@@ -164,7 +165,7 @@ public sealed class PdfDocument
         var modDate = GetStr(info, "ModDate");
 
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
+        sb.AppendLine("<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
         sb.AppendLine("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">");
         sb.AppendLine("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">");
         sb.AppendLine("    <rdf:Description rdf:about=\"\"");
@@ -869,6 +870,7 @@ public sealed class PdfDocument
 
         if (Metadata is not null && Metadata.Reference.Equals(reference))
         {
+            CatalogDictionary.Remove("Metadata");
             Metadata = null;
         }
 
