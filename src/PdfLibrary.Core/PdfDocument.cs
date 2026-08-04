@@ -106,6 +106,18 @@ public sealed class PdfDocument
     {
         if (Metadata?.Value is PdfStream stream)
         {
+            if (stream.Dictionary.TryGetValue("Length", out var lengthValue) &&
+                lengthValue is PdfNumber lengthNumber)
+            {
+                var length = (int)lengthNumber.Value;
+                if (length >= 0 && length <= stream.Data.Length)
+                {
+                    var sliced = new byte[length];
+                    Array.Copy(stream.Data, 0, sliced, 0, length);
+                    return sliced;
+                }
+            }
+
             return (byte[])stream.Data.Clone();
         }
 

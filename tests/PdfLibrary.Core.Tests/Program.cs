@@ -481,6 +481,7 @@ internal static class Program
         Assert.True(reloadedXmp.Metadata is not null, "読み込み後に Metadata が null です。");
         var reloadedData = reloadedXmp.GetXmpMetadata();
         Assert.True(reloadedData is not null, "読み込み後の GetXmpMetadata が null です。");
+        Assert.True(reloadedData!.SequenceEqual(xmpXml), "読み込み後の XMP データが /Length で切り詰められていません。");
         Assert.True(Encoding.UTF8.GetString(reloadedData!).Contains("x:xmpmeta", StringComparison.Ordinal), "読み込んだ XMP データが不正です。");
 
         // SyncXmpFromInfo テスト
