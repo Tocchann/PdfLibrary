@@ -251,6 +251,112 @@ internal static class Program
         var encryptedIssues = validator.Validate(encryptedDocument);
         Assert.ContainsIssue(encryptedIssues, "CHK-006", "暗号化文書の CHK-006 検出に失敗しました。");
 
+        // AcroForm: テキストフィールドの追加・取得・値変更・削除
+        var formDocument = PdfDocument.Create();
+        var formPage = formDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(595),
+                new PdfNumber(842),
+            },
+        });
+        var textField = formDocument.AddFormField(new PdfFormField("名前", PdfFormFieldType.Text)
+        {
+            Value = "テスト",
+            PageIndex = 0,
+            Rect = new PdfArray
+            {
+                new PdfNumber(50),
+                new PdfNumber(700),
+                new PdfNumber(250),
+                new PdfNumber(720),
+            },
+        });
+        formDocument.AddFormField(new PdfFormField("チェック1", PdfFormFieldType.Button)
+        {
+            PageIndex = 0,
+            Rect = new PdfArray
+            {
+                new PdfNumber(50),
+                new PdfNumber(650),
+                new PdfNumber(70),
+                new PdfNumber(670),
+            },
+        });
+        var formBytes = formDocument.Save();
+        var formText = Encoding.UTF8.GetString(formBytes);
+        Assert.True(formText.Contains("/AcroForm", StringComparison.Ordinal), "フォームの保存に AcroForm がありません。");
+        Assert.True(formText.Contains("/FT /Tx", StringComparison.Ordinal), "テキストフィールドの保存に FT がありません。");
+        Assert.Equal(2, formDocument.GetFormFields().Count, "フォームフィールドの取得件数が一致しません。");
+
+        Assert.True(formDocument.SetFieldValue(textField.Reference, "更新値"), "フィールド値の更新に失敗しました。");
+        var updatedFormText = Encoding.UTF8.GetString(formDocument.Save());
+        Assert.True(updatedFormText.Contains("更新値", StringComparison.Ordinal), "フィールド値の更新が保存されていません。");
+
+        Assert.True(formDocument.RemoveFormField(textField.Reference), "フォームフィールドの削除に失敗しました。");
+        Assert.Equal(1, formDocument.GetFormFields().Count, "フィールド削除後の件数が一致しません。");
+
+        // AcroForm round-trip
+        var loadedFormDocument = PdfDocument.Load(formBytes);
+        Assert.True(
+            loadedFormDocument.CatalogDictionary.TryGetValue("AcroForm", out var loadedAcroFormValue) && loadedAcroFormValue is PdfReference,
+            "フォームの読込に失敗しました。");
+        Assert.True(loadedFormDocument.AcroForm is not null, "AcroForm の内部状態が読み込まれていません。");
+
+        // AcroForm 保存前検証エラー（不正なフィールド）
+        var invalidFormDocument = PdfDocument.Create();
+        invalidFormDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(200), new PdfNumber(200) },
+        });
+        var invalidAcroForm = invalidFormDocument.AddObject(new PdfDictionary
+        {
+            ["Fields"] = new PdfArray
+            {
+                invalidFormDocument.AddObject(new PdfDictionary
+                {
+                    ["FT"] = new PdfName("Tx"),
+                }).Reference,
+            },
+        });
+        ((PdfDictionary)invalidFormDocument.CatalogDictionary)["AcroForm"] = invalidAcroForm.Reference;
+        var invalidFormIssues = validator.Validate(invalidFormDocument);
+        Assert.ContainsIssue(invalidFormIssues, "CHK-003", "フィールド名なしの CHK-003 検出に失敗しました。");
+
+        // 添付ファイル: 追加・取得・削除
+        var attachDocument = PdfDocument.Create();
+        attachDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(595),
+                new PdfNumber(842),
+            },
+        });
+        attachDocument.AddEmbeddedFile("サンプル.txt", Encoding.UTF8.GetBytes("hello"), "text/plain");
+        var attachBytes = attachDocument.Save();
+        var attachText = Encoding.UTF8.GetString(attachBytes);
+        Assert.True(attachText.Contains("/EmbeddedFiles", StringComparison.Ordinal), "添付ファイルの保存に EmbeddedFiles がありません。");
+        Assert.Equal(1, attachDocument.GetEmbeddedFileNames().Count, "添付ファイルの取得件数が一致しません。");
+        Assert.Equal("サンプル.txt", attachDocument.GetEmbeddedFileNames()[0], "添付ファイル名が一致しません。");
+
+        Assert.True(attachDocument.RemoveEmbeddedFile("サンプル.txt"), "添付ファイルの削除に失敗しました。");
+        Assert.Equal(0, attachDocument.GetEmbeddedFileNames().Count, "削除後も添付ファイルが残っています。");
+        var removedAttachText = Encoding.UTF8.GetString(attachDocument.Save());
+        Assert.True(!removedAttachText.Contains("/EmbeddedFiles", StringComparison.Ordinal), "削除後も EmbeddedFiles が残っています。");
+
+        // 添付ファイル round-trip
+        var loadedAttachDocument = PdfDocument.Load(attachBytes);
+        Assert.True(
+            loadedAttachDocument.CatalogDictionary.TryGetValue("Names", out _),
+            "添付ファイルの読込に失敗しました。");
+        Assert.True(loadedAttachDocument.EmbeddedFilesNameTree is not null, "EmbeddedFilesNameTree の内部状態が読み込まれていません。");
+
         Console.WriteLine("PdfLibrary.Core tests passed.");
     }
 }

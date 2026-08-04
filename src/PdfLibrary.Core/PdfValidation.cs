@@ -53,6 +53,8 @@ public sealed class PdfPreSaveValidator
         }
 
         ValidateOutlines(document, objectsByReference, issues);
+        ValidateAcroForm(document, objectsByReference, issues);
+        ValidateEmbeddedFiles(document, objectsByReference, issues);
 
         return issues;
     }
@@ -324,4 +326,140 @@ public sealed class PdfPreSaveValidator
         PdfReference reference,
         out PdfIndirectObject? indirectObject)
         => objectsByReference.TryGetValue((reference.ObjectNumber, reference.GenerationNumber), out indirectObject);
+
+    private static void ValidateAcroForm(
+        PdfDocument document,
+        IReadOnlyDictionary<(int ObjectNumber, int GenerationNumber), PdfIndirectObject> objectsByReference,
+        List<PdfValidationIssue> issues)
+    {
+        if (!(document.CatalogDictionary.TryGetValue("AcroForm", out var acroFormValue) && acroFormValue is PdfReference acroFormReference))
+        {
+            return;
+        }
+
+        if (!TryGetObject(objectsByReference, acroFormReference, out var acroFormObject) || acroFormObject is null)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Catalog から AcroForm への参照が解決できません。"));
+            return;
+        }
+
+        if (acroFormObject.Value is not PdfDictionary acroFormDictionary)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "AcroForm が辞書ではありません。"));
+            return;
+        }
+
+        if (!(acroFormDictionary.TryGetValue("Fields", out var fieldsValue) && fieldsValue is PdfArray fields))
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "AcroForm に /Fields がありません。"));
+            return;
+        }
+
+        foreach (var item in fields)
+        {
+            if (item is not PdfReference fieldReference)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", "AcroForm の /Fields に参照以外の要素があります。"));
+                continue;
+            }
+
+            if (!TryGetObject(objectsByReference, fieldReference, out var fieldObject) || fieldObject is null)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"AcroForm のフィールド {fieldReference.ObjectNumber} {fieldReference.GenerationNumber} R が解決できません。"));
+                continue;
+            }
+
+            if (fieldObject.Value is not PdfDictionary fieldDictionary)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"AcroForm のフィールド {fieldReference.ObjectNumber} {fieldReference.GenerationNumber} R が辞書ではありません。"));
+                continue;
+            }
+
+            if (!(fieldDictionary.TryGetValue("FT", out var ftValue) && ftValue is PdfName ftName &&
+                  (string.Equals(ftName.Value, "Tx", StringComparison.Ordinal) ||
+                   string.Equals(ftName.Value, "Btn", StringComparison.Ordinal) ||
+                   string.Equals(ftName.Value, "Ch", StringComparison.Ordinal) ||
+                   string.Equals(ftName.Value, "Sig", StringComparison.Ordinal))))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"AcroForm のフィールド {fieldReference.ObjectNumber} {fieldReference.GenerationNumber} R に有効な /FT がありません。"));
+            }
+
+            if (!(fieldDictionary.TryGetValue("T", out var tValue) && tValue is PdfString))
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"AcroForm のフィールド {fieldReference.ObjectNumber} {fieldReference.GenerationNumber} R に /T（フィールド名）がありません。"));
+            }
+        }
+    }
+
+    private static void ValidateEmbeddedFiles(
+        PdfDocument document,
+        IReadOnlyDictionary<(int ObjectNumber, int GenerationNumber), PdfIndirectObject> objectsByReference,
+        List<PdfValidationIssue> issues)
+    {
+        if (!(document.CatalogDictionary.TryGetValue("Names", out var namesValue) && namesValue is PdfReference namesReference))
+        {
+            return;
+        }
+
+        if (!TryGetObject(objectsByReference, namesReference, out var namesObject) || namesObject is null)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Catalog から Names への参照が解決できません。"));
+            return;
+        }
+
+        if (namesObject.Value is not PdfDictionary namesDictionary)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Names が辞書ではありません。"));
+            return;
+        }
+
+        if (!(namesDictionary.TryGetValue("EmbeddedFiles", out var embeddedFilesValue) && embeddedFilesValue is PdfReference embeddedFilesReference))
+        {
+            return;
+        }
+
+        if (!TryGetObject(objectsByReference, embeddedFilesReference, out var embeddedFilesObject) || embeddedFilesObject is null)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "Names の EmbeddedFiles への参照が解決できません。"));
+            return;
+        }
+
+        if (embeddedFilesObject.Value is not PdfDictionary embeddedFilesDictionary)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "EmbeddedFiles ネームツリーが辞書ではありません。"));
+            return;
+        }
+
+        if (!(embeddedFilesDictionary.TryGetValue("Names", out var namesArrayValue) && namesArrayValue is PdfArray namesArray))
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "EmbeddedFiles ネームツリーに /Names がありません。"));
+            return;
+        }
+
+        if (namesArray.Count % 2 != 0)
+        {
+            issues.Add(new PdfValidationIssue("CHK-003", "EmbeddedFiles ネームツリーの /Names は偶数個の要素である必要があります。"));
+            return;
+        }
+
+        for (var index = 0; index < namesArray.Count; index += 2)
+        {
+            if (namesArray[index] is not PdfString)
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"EmbeddedFiles ネームツリーのキー（index {index}）が文字列ではありません。"));
+            }
+
+            if (namesArray[index + 1] is PdfReference fileSpecRef)
+            {
+                if (!TryGetObject(objectsByReference, fileSpecRef, out var fileSpecObject) || fileSpecObject is null)
+                {
+                    issues.Add(new PdfValidationIssue("CHK-003", $"EmbeddedFiles の FileSpec {fileSpecRef.ObjectNumber} {fileSpecRef.GenerationNumber} R が解決できません。"));
+                }
+            }
+            else
+            {
+                issues.Add(new PdfValidationIssue("CHK-003", $"EmbeddedFiles ネームツリーの値（index {index + 1}）が参照ではありません。"));
+            }
+        }
+    }
 }
