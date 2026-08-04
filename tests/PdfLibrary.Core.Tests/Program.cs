@@ -544,6 +544,32 @@ internal static class Program
         Assert.True(hexSyncedText.Contains("16進タイトル", StringComparison.Ordinal), "PdfHexString の Title が XMP に同期されていません。");
         Assert.True(hexSyncedText.Contains("16進著者", StringComparison.Ordinal), "PdfHexString の Author が XMP に同期されていません。");
 
+        // UTF-16BE(BOM付き) の PdfHexString も XMP 同期できることを確認
+        var bomHexInfoDoc = PdfDocument.Create();
+        bomHexInfoDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var bomTitleBody = Encoding.BigEndianUnicode.GetBytes("BOMタイトル");
+        var bomAuthorBody = Encoding.BigEndianUnicode.GetBytes("BOM著者");
+        var bomTitle = new byte[bomTitleBody.Length + 2];
+        var bomAuthor = new byte[bomAuthorBody.Length + 2];
+        bomTitle[0] = 0xFE;
+        bomTitle[1] = 0xFF;
+        bomAuthor[0] = 0xFE;
+        bomAuthor[1] = 0xFF;
+        Array.Copy(bomTitleBody, 0, bomTitle, 2, bomTitleBody.Length);
+        Array.Copy(bomAuthorBody, 0, bomAuthor, 2, bomAuthorBody.Length);
+        bomHexInfoDoc.SetInfo(new PdfDictionary
+        {
+            ["Title"] = new PdfHexString(bomTitle),
+            ["Author"] = new PdfHexString(bomAuthor),
+        });
+        bomHexInfoDoc.SyncXmpFromInfo();
+        var bomHexSyncedText = Encoding.UTF8.GetString(bomHexInfoDoc.GetXmpMetadata()!);
+        Assert.True(bomHexSyncedText.Contains("BOMタイトル", StringComparison.Ordinal), "BOM付き PdfHexString の Title が XMP に同期されていません。");
+        Assert.True(bomHexSyncedText.Contains("BOM著者", StringComparison.Ordinal), "BOM付き PdfHexString の Author が XMP に同期されていません。");
+
         // ClearXmpMetadata で Metadata と /Catalog/Metadata 参照が掃除されることを確認
         var removeDoc = PdfDocument.Create();
         removeDoc.AddPage(new PdfDictionary

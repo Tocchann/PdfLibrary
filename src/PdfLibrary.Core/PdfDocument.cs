@@ -174,7 +174,7 @@ public sealed class PdfDocument
             return value switch
             {
                 PdfString s => s.Value,
-                PdfHexString hex => System.Text.Encoding.UTF8.GetString(hex.Data),
+                PdfHexString hex => DecodePdfHexText(hex.Data),
                 _ => null,
             };
         }
@@ -243,6 +243,24 @@ public sealed class PdfDocument
         sb.AppendLine("<?xpacket end=\"w\"?>");
 
         return sb.ToString();
+    }
+
+    private static string DecodePdfHexText(byte[] data)
+    {
+        if (data.Length >= 2)
+        {
+            if (data[0] == 0xFE && data[1] == 0xFF)
+            {
+                return System.Text.Encoding.BigEndianUnicode.GetString(data, 2, data.Length - 2);
+            }
+
+            if (data[0] == 0xFF && data[1] == 0xFE)
+            {
+                return System.Text.Encoding.Unicode.GetString(data, 2, data.Length - 2);
+            }
+        }
+
+        return System.Text.Encoding.UTF8.GetString(data);
     }
 
     private static string EscapeXml(string value)
