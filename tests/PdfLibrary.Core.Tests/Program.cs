@@ -557,6 +557,36 @@ internal static class Program
         Assert.True(!removeDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が削除されていません。");
         Assert.True(!removeDoc.ClearXmpMetadata(), "Metadata がない状態で ClearXmpMetadata が true を返しました。");
 
+        // Metadata 状態がなくても /Catalog/Metadata の孤立参照を掃除した場合は true を返すことを確認
+        var orphanDoc = PdfDocument.Create();
+        orphanDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        orphanDoc.CatalogDictionary["Metadata"] = new PdfReference(9999);
+        Assert.True(orphanDoc.ClearXmpMetadata(), "孤立した /Catalog/Metadata の削除が true を返しません。");
+        Assert.True(!orphanDoc.CatalogDictionary.ContainsKey("Metadata"), "孤立した /Catalog/Metadata が削除されていません。");
+
+        // /Type /Subtype が一致しない stream は Metadata として採用しないことを確認
+        var invalidMetadataDoc = PdfDocument.Create();
+        invalidMetadataDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var invalidMetadataStream = new PdfStream(
+            new PdfDictionary
+            {
+                ["Type"] = new PdfName("NotMetadata"),
+                ["Subtype"] = new PdfName("XML"),
+            },
+            Encoding.UTF8.GetBytes("<not-xmp/>"));
+        var invalidMetadataObject = invalidMetadataDoc.AddObject(invalidMetadataStream);
+        invalidMetadataDoc.CatalogDictionary["Metadata"] = invalidMetadataObject.Reference;
+        var invalidMetadataBytes = invalidMetadataDoc.Save();
+        var reloadedInvalidMetadataDoc = PdfDocument.Load(invalidMetadataBytes);
+        Assert.True(reloadedInvalidMetadataDoc.Metadata is null, "不正な Metadata stream が Metadata として採用されました。");
+        Assert.True(reloadedInvalidMetadataDoc.GetXmpMetadata() is null, "不正な Metadata stream のデータが取得できてしまいます。");
+
         Assert.True(syncedText.Contains("begin=\"\uFEFF\"", StringComparison.Ordinal), "xpacket begin に UTF-8 BOM 文字が設定されていません。");
     }
 }

@@ -141,8 +141,7 @@ public sealed class PdfDocument
     {
         if (Metadata is null)
         {
-            CatalogDictionary.Remove("Metadata");
-            return false;
+            return CatalogDictionary.Remove("Metadata");
         }
 
         return RemoveObjectCore(Metadata.Reference);

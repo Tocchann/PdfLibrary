@@ -91,7 +91,13 @@ internal static class PdfDocumentReader
         if (document.CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
             metadataValue is PdfReference metadataReference &&
             objects.TryGetValue(metadataReference.ObjectNumber, out var metadataObject) &&
-            metadataObject.Value is PdfStream)
+            metadataObject.Value is PdfStream metadataStream &&
+            metadataStream.Dictionary.TryGetValue("Type", out var metadataTypeValue) &&
+            metadataTypeValue is PdfName metadataType &&
+            string.Equals(metadataType.Value, "Metadata", StringComparison.Ordinal) &&
+            metadataStream.Dictionary.TryGetValue("Subtype", out var metadataSubtypeValue) &&
+            metadataSubtypeValue is PdfName metadataSubtype &&
+            string.Equals(metadataSubtype.Value, "XML", StringComparison.Ordinal))
         {
             document.SetMetadataState(metadataObject);
         }
