@@ -19,7 +19,7 @@
 | Structure | Catalog/Page Tree の参照整合性 | 7.7.2, 7.7.3 | 実装済み |
 | Bookmark | Outline 階層整合性 | 12.3.3 | 実装済み |
 | Annotation | Subtype別の必須キー検証 | 12.5.6 | 実装済み |
-| Form | フィールド木・Widget連携 | 12.7 | Pending |
+| Form | フィールド木・Widget連携 | 12.7 | 実装済み |
 | Signature | ByteRange/Contents の整合性 | 12.8 | 実装済み |
 | Metadata | Info/XMP 同期方針 | 14.3 | Pending |
 

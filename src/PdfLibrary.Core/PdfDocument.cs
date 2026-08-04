@@ -30,6 +30,10 @@ public sealed class PdfDocument
 
     public PdfIndirectObject? Outlines { get; private set; }
 
+    public PdfIndirectObject? AcroForm { get; private set; }
+
+    public PdfIndirectObject? EmbeddedFilesNameTree { get; private set; }
+
     public IReadOnlyList<PdfIndirectObject> Objects => _objects;
 
     internal List<PdfIndirectObject> MutableObjects => _objects;
@@ -235,6 +239,272 @@ public sealed class PdfDocument
     internal void SetOutlinesState(PdfIndirectObject? outlines)
     {
         Outlines = outlines;
+    }
+
+    internal void SetAcroFormState(PdfIndirectObject? acroForm)
+    {
+        AcroForm = acroForm;
+    }
+
+    internal void SetEmbeddedFilesNameTreeState(PdfIndirectObject? nameTree)
+    {
+        EmbeddedFilesNameTree = nameTree;
+    }
+
+    public PdfIndirectObject AddFormField(PdfFormField field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+
+        var fieldTypeName = field.FieldType switch
+        {
+            PdfFormFieldType.Text => "Tx",
+            PdfFormFieldType.Button => "Btn",
+            PdfFormFieldType.Choice => "Ch",
+            _ => throw new ArgumentOutOfRangeException(nameof(field)),
+        };
+
+        var fieldDictionary = new PdfDictionary
+        {
+            ["Type"] = new PdfName("Annot"),
+            ["Subtype"] = new PdfName("Widget"),
+            ["FT"] = new PdfName(fieldTypeName),
+            ["T"] = new PdfString(field.Name),
+        };
+
+        if (field.Value is not null)
+        {
+            fieldDictionary["V"] = new PdfString(field.Value);
+        }
+
+        if (field.Rect is not null)
+        {
+            fieldDictionary["Rect"] = field.Rect;
+        }
+        else
+        {
+            fieldDictionary["Rect"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(0),
+            };
+        }
+
+        if (field.PageIndex.HasValue)
+        {
+            var page = GetPageAt(field.PageIndex.Value);
+            fieldDictionary["P"] = page.Reference;
+            var annots = GetOrCreateAnnotsArray((PdfDictionary)page.Value);
+            var fieldObject = AddObjectCore(fieldDictionary);
+            annots.Add(fieldObject.Reference);
+            EnsureAcroFormField(fieldObject);
+            return fieldObject;
+        }
+
+        var fieldObj = AddObjectCore(fieldDictionary);
+        EnsureAcroFormField(fieldObj);
+        return fieldObj;
+    }
+
+    public IReadOnlyList<PdfIndirectObject> GetFormFields()
+    {
+        if (AcroForm is null)
+        {
+            return [];
+        }
+
+        if (AcroForm.Value is not PdfDictionary acroFormDictionary)
+        {
+            return [];
+        }
+
+        if (!acroFormDictionary.TryGetValue("Fields", out var fieldsValue) || fieldsValue is not PdfArray fields)
+        {
+            return [];
+        }
+
+        return fields
+            .OfType<PdfReference>()
+            .Select(reference => _objects.FirstOrDefault(item => item.ObjectNumber == reference.ObjectNumber && item.GenerationNumber == reference.GenerationNumber))
+            .Where(item => item is not null)
+            .ToArray()!;
+    }
+
+    public bool SetFieldValue(PdfReference fieldReference, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var fieldObject = _objects.FirstOrDefault(item => item.ObjectNumber == fieldReference.ObjectNumber && item.GenerationNumber == fieldReference.GenerationNumber);
+        if (fieldObject is null || fieldObject.Value is not PdfDictionary fieldDictionary)
+        {
+            return false;
+        }
+
+        fieldDictionary["V"] = new PdfString(value);
+        return true;
+    }
+
+    public bool RemoveFormField(PdfReference fieldReference)
+    {
+        var fieldObject = _objects.FirstOrDefault(item => item.ObjectNumber == fieldReference.ObjectNumber && item.GenerationNumber == fieldReference.GenerationNumber);
+        if (fieldObject is null)
+        {
+            return false;
+        }
+
+        if (AcroForm?.Value is PdfDictionary acroFormDictionary &&
+            acroFormDictionary.TryGetValue("Fields", out var fieldsValue) &&
+            fieldsValue is PdfArray fields)
+        {
+            for (var index = 0; index < fields.Count; index++)
+            {
+                if (fields[index] is PdfReference reference && reference.Equals(fieldReference))
+                {
+                    fields.RemoveAt(index);
+                    break;
+                }
+            }
+
+            if (fields.Count == 0)
+            {
+                CatalogDictionary.Remove("AcroForm");
+                RemoveObjectCore(AcroForm!.Reference);
+                AcroForm = null;
+            }
+        }
+
+        if (fieldObject.Value is PdfDictionary fd && fd.TryGetValue("P", out var pageRefValue) && pageRefValue is PdfReference pageRef)
+        {
+            var page = _objects.FirstOrDefault(item => item.ObjectNumber == pageRef.ObjectNumber);
+            if (page?.Value is PdfDictionary pageDictionary &&
+                pageDictionary.TryGetValue("Annots", out var annotsValue) &&
+                annotsValue is PdfArray annots)
+            {
+                for (var i = 0; i < annots.Count; i++)
+                {
+                    if (annots[i] is PdfReference r && r.Equals(fieldReference))
+                    {
+                        annots.RemoveAt(i);
+                        break;
+                    }
+                }
+
+                if (annots.Count == 0)
+                {
+                    pageDictionary.Remove("Annots");
+                }
+            }
+        }
+
+        RemoveObjectCore(fieldReference);
+        return true;
+    }
+
+    public PdfIndirectObject AddEmbeddedFile(string name, byte[] data, string mimeType = "application/octet-stream")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(data);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mimeType);
+
+        var embeddedStreamDictionary = new PdfDictionary
+        {
+            ["Type"] = new PdfName("EmbeddedFile"),
+            ["Subtype"] = new PdfName(mimeType.Replace("/", "#2F")),
+        };
+        var embeddedStream = AddObjectCore(new PdfStream(embeddedStreamDictionary, data));
+
+        var fileSpecDictionary = new PdfDictionary
+        {
+            ["Type"] = new PdfName("Filespec"),
+            ["F"] = new PdfString(name),
+            ["UF"] = new PdfString(name),
+            ["EF"] = new PdfDictionary
+            {
+                ["F"] = embeddedStream.Reference,
+                ["UF"] = embeddedStream.Reference,
+            },
+        };
+        var fileSpec = AddObjectCore(fileSpecDictionary);
+
+        EnsureEmbeddedFilesNameTree(name, fileSpec.Reference);
+        return fileSpec;
+    }
+
+    public IReadOnlyList<string> GetEmbeddedFileNames()
+    {
+        if (EmbeddedFilesNameTree is null)
+        {
+            return [];
+        }
+
+        if (EmbeddedFilesNameTree.Value is not PdfDictionary nameTreeDictionary)
+        {
+            return [];
+        }
+
+        if (!nameTreeDictionary.TryGetValue("Names", out var namesValue) || namesValue is not PdfArray names)
+        {
+            return [];
+        }
+
+        var result = new List<string>();
+        for (var index = 0; index < names.Count - 1; index += 2)
+        {
+            if (names[index] is PdfString nameString)
+            {
+                result.Add(nameString.Value);
+            }
+        }
+
+        return result;
+    }
+
+    public bool RemoveEmbeddedFile(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        if (EmbeddedFilesNameTree is null ||
+            EmbeddedFilesNameTree.Value is not PdfDictionary nameTreeDictionary ||
+            !nameTreeDictionary.TryGetValue("Names", out var namesValue) ||
+            namesValue is not PdfArray names)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < names.Count - 1; index += 2)
+        {
+            if (names[index] is PdfString nameString && string.Equals(nameString.Value, name, StringComparison.Ordinal))
+            {
+                PdfReference? fileSpecRef = names[index + 1] as PdfReference;
+                names.RemoveAt(index + 1);
+                names.RemoveAt(index);
+
+                if (fileSpecRef is not null)
+                {
+                    var fileSpecObject = _objects.FirstOrDefault(item => item.ObjectNumber == fileSpecRef.ObjectNumber);
+                    if (fileSpecObject?.Value is PdfDictionary fsd &&
+                        fsd.TryGetValue("EF", out var efValue) &&
+                        efValue is PdfDictionary ef &&
+                        ef.TryGetValue("F", out var embeddedRef) &&
+                        embeddedRef is PdfReference embRef)
+                    {
+                        RemoveObjectCore(embRef);
+                    }
+
+                    RemoveObjectCore(fileSpecRef);
+                }
+
+                if (names.Count == 0)
+                {
+                    CleanupEmbeddedFilesNameTree();
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private PdfIndirectObject AddObjectCore(PdfValue value)
@@ -444,6 +714,118 @@ public sealed class PdfDocument
             Outlines = null;
         }
 
+        if (AcroForm is not null && AcroForm.Reference.Equals(reference))
+        {
+            AcroForm = null;
+        }
+
+        if (EmbeddedFilesNameTree is not null && EmbeddedFilesNameTree.Reference.Equals(reference))
+        {
+            EmbeddedFilesNameTree = null;
+        }
+
         return true;
+    }
+
+    private void EnsureAcroFormField(PdfIndirectObject fieldObject)
+    {
+        if (AcroForm is null)
+        {
+            var acroFormDictionary = new PdfDictionary
+            {
+                ["Fields"] = new PdfArray { fieldObject.Reference },
+            };
+            AcroForm = AddObjectCore(acroFormDictionary);
+            CatalogDictionary["AcroForm"] = AcroForm.Reference;
+        }
+        else
+        {
+            if (AcroForm.Value is PdfDictionary acroFormDictionary)
+            {
+                if (!acroFormDictionary.TryGetValue("Fields", out var fieldsValue) || fieldsValue is not PdfArray fields)
+                {
+                    fields = new PdfArray();
+                    acroFormDictionary["Fields"] = fields;
+                }
+
+                fields.Add(fieldObject.Reference);
+            }
+        }
+    }
+
+    private void EnsureEmbeddedFilesNameTree(string name, PdfReference fileSpecReference)
+    {
+        if (EmbeddedFilesNameTree is null)
+        {
+            var nameTreeDictionary = new PdfDictionary
+            {
+                ["Names"] = new PdfArray
+                {
+                    new PdfString(name),
+                    fileSpecReference,
+                },
+            };
+            EmbeddedFilesNameTree = AddObjectCore(nameTreeDictionary);
+            EnsureNamesEntry("EmbeddedFiles", EmbeddedFilesNameTree.Reference);
+        }
+        else
+        {
+            if (EmbeddedFilesNameTree.Value is PdfDictionary nameTreeDictionary)
+            {
+                if (!nameTreeDictionary.TryGetValue("Names", out var namesValue) || namesValue is not PdfArray names)
+                {
+                    names = new PdfArray();
+                    nameTreeDictionary["Names"] = names;
+                }
+
+                names.Add(new PdfString(name));
+                names.Add(fileSpecReference);
+            }
+        }
+    }
+
+    private void EnsureNamesEntry(string key, PdfReference valueReference)
+    {
+        if (!CatalogDictionary.TryGetValue("Names", out var namesValue) || namesValue is not PdfReference namesRef)
+        {
+            var namesDictionary = new PdfDictionary
+            {
+                [key] = valueReference,
+            };
+            var namesObject = AddObjectCore(namesDictionary);
+            CatalogDictionary["Names"] = namesObject.Reference;
+            return;
+        }
+
+        var namesObject2 = _objects.FirstOrDefault(item => item.ObjectNumber == namesRef.ObjectNumber);
+        if (namesObject2?.Value is PdfDictionary existingNamesDictionary)
+        {
+            existingNamesDictionary[key] = valueReference;
+        }
+    }
+
+    private void CleanupEmbeddedFilesNameTree()
+    {
+        if (EmbeddedFilesNameTree is null)
+        {
+            return;
+        }
+
+        if (CatalogDictionary.TryGetValue("Names", out var namesValue) && namesValue is PdfReference namesRef)
+        {
+            var namesObject = _objects.FirstOrDefault(item => item.ObjectNumber == namesRef.ObjectNumber);
+            if (namesObject?.Value is PdfDictionary namesDictionary)
+            {
+                namesDictionary.Remove("EmbeddedFiles");
+                if (!namesDictionary.Any())
+                {
+                    CatalogDictionary.Remove("Names");
+                    RemoveObjectCore(namesRef);
+                }
+            }
+        }
+
+        RemoveObjectCore(EmbeddedFilesNameTree.Reference);
+        EmbeddedFilesNameTree = null;
     }
 }

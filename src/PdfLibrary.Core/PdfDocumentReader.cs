@@ -70,6 +70,24 @@ internal static class PdfDocumentReader
             document.SetOutlinesState(outlinesObject);
         }
 
+        if (document.CatalogDictionary.TryGetValue("AcroForm", out var acroFormValue) &&
+            acroFormValue is PdfReference acroFormReference &&
+            objects.TryGetValue(acroFormReference.ObjectNumber, out var acroFormObject))
+        {
+            document.SetAcroFormState(acroFormObject);
+        }
+
+        if (document.CatalogDictionary.TryGetValue("Names", out var namesValue) &&
+            namesValue is PdfReference namesReference &&
+            objects.TryGetValue(namesReference.ObjectNumber, out var namesObject) &&
+            namesObject.Value is PdfDictionary namesDictionary &&
+            namesDictionary.TryGetValue("EmbeddedFiles", out var embeddedFilesValue) &&
+            embeddedFilesValue is PdfReference embeddedFilesReference &&
+            objects.TryGetValue(embeddedFilesReference.ObjectNumber, out var embeddedFilesObject))
+        {
+            document.SetEmbeddedFilesNameTreeState(embeddedFilesObject);
+        }
+
         document.RebuildPageTree();
         document.SetOriginalState(bytes, TryReadStartXref(bytes));
         return document;
