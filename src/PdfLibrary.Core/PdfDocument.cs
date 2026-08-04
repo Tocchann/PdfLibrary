@@ -131,8 +131,21 @@ public sealed class PdfDocument
         else
         {
             Metadata = AddObjectCore(new PdfStream(streamDict, metadataBytes));
-            CatalogDictionary["Metadata"] = Metadata.Reference;
         }
+
+        CatalogDictionary["Metadata"] = Metadata.Reference;
+    }
+
+    /// <summary>XMP Metadata ストリームを削除します。存在した場合は true を返します。</summary>
+    public bool ClearXmpMetadata()
+    {
+        if (Metadata is null)
+        {
+            CatalogDictionary.Remove("Metadata");
+            return false;
+        }
+
+        return RemoveObjectCore(Metadata.Reference);
     }
 
     /// <summary>
@@ -153,7 +166,19 @@ public sealed class PdfDocument
     private static string BuildMinimalXmp(PdfDictionary info)
     {
         static string? GetStr(PdfDictionary d, string key)
-            => d.TryGetValue(key, out var v) && v is PdfString s ? s.Value : null;
+        {
+            if (!d.TryGetValue(key, out var value))
+            {
+                return null;
+            }
+
+            return value switch
+            {
+                PdfString s => s.Value,
+                PdfHexString hex => System.Text.Encoding.UTF8.GetString(hex.Data),
+                _ => null,
+            };
+        }
 
         var title = GetStr(info, "Title");
         var author = GetStr(info, "Author");

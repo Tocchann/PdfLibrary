@@ -522,20 +522,40 @@ internal static class Program
         updatedXml[0] = (byte)'X';
         Assert.True(Encoding.UTF8.GetString(xmpDoc.GetXmpMetadata()!).StartsWith("<updated/>", StringComparison.Ordinal), "SetXmpMetadata が入力配列を保持しています。");
 
-        // Metadata オブジェクト削除時に /Catalog/Metadata 参照も掃除されることを確認
+        // Catalog の Metadata 参照が消えていても SetXmpMetadata で再同期されることを確認
+        xmpDoc.CatalogDictionary.Remove("Metadata");
+        xmpDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<resynced/>"));
+        Assert.True(xmpDoc.CatalogDictionary.ContainsKey("Metadata"), "SetXmpMetadata が /Catalog/Metadata を再同期していません。");
+        Assert.True(Encoding.UTF8.GetString(xmpDoc.GetXmpMetadata()!).StartsWith("<resynced/>", StringComparison.Ordinal), "Catalog 再同期後の Metadata が一致しません。");
+
+        // PdfHexString の Info 値も XMP 同期できることを確認
+        var hexInfoDoc = PdfDocument.Create();
+        hexInfoDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        hexInfoDoc.SetInfo(new PdfDictionary
+        {
+            ["Title"] = new PdfHexString(Encoding.UTF8.GetBytes("16進タイトル")),
+            ["Author"] = new PdfHexString(Encoding.UTF8.GetBytes("16進著者")),
+        });
+        hexInfoDoc.SyncXmpFromInfo();
+        var hexSyncedText = Encoding.UTF8.GetString(hexInfoDoc.GetXmpMetadata()!);
+        Assert.True(hexSyncedText.Contains("16進タイトル", StringComparison.Ordinal), "PdfHexString の Title が XMP に同期されていません。");
+        Assert.True(hexSyncedText.Contains("16進著者", StringComparison.Ordinal), "PdfHexString の Author が XMP に同期されていません。");
+
+        // ClearXmpMetadata で Metadata と /Catalog/Metadata 参照が掃除されることを確認
         var removeDoc = PdfDocument.Create();
         removeDoc.AddPage(new PdfDictionary
         {
             ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
         });
         removeDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<meta/>"));
-        var metadataRef = removeDoc.Metadata!.Reference;
-        var removeMethod = typeof(PdfDocument).GetMethod("RemoveObjectCore", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        Assert.True(removeMethod is not null, "RemoveObjectCore を取得できません。");
-        var removed = (bool)removeMethod!.Invoke(removeDoc, [metadataRef])!;
+        var removed = removeDoc.ClearXmpMetadata();
         Assert.True(removed, "Metadata オブジェクトの削除に失敗しました。");
         Assert.True(removeDoc.Metadata is null, "Metadata 状態がクリアされていません。");
         Assert.True(!removeDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が削除されていません。");
+        Assert.True(!removeDoc.ClearXmpMetadata(), "Metadata がない状態で ClearXmpMetadata が true を返しました。");
 
         Assert.True(syncedText.Contains("begin=\"\uFEFF\"", StringComparison.Ordinal), "xpacket begin に UTF-8 BOM 文字が設定されていません。");
     }
