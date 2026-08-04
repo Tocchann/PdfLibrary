@@ -97,7 +97,9 @@ internal static class PdfDocumentReader
             string.Equals(metadataType.Value, "Metadata", StringComparison.Ordinal) &&
             metadataStream.Dictionary.TryGetValue("Subtype", out var metadataSubtypeValue) &&
             metadataSubtypeValue is PdfName metadataSubtype &&
-            string.Equals(metadataSubtype.Value, "XML", StringComparison.Ordinal))
+            string.Equals(metadataSubtype.Value, "XML", StringComparison.Ordinal) &&
+            !metadataStream.Dictionary.ContainsKey("Filter") &&
+            !metadataStream.Dictionary.ContainsKey("DecodeParms"))
         {
             document.SetMetadataState(metadataObject);
         }

@@ -587,6 +587,28 @@ internal static class Program
         Assert.True(reloadedInvalidMetadataDoc.Metadata is null, "不正な Metadata stream が Metadata として採用されました。");
         Assert.True(reloadedInvalidMetadataDoc.GetXmpMetadata() is null, "不正な Metadata stream のデータが取得できてしまいます。");
 
+        // Filter / DecodeParms を持つ Metadata stream は未デコードのため採用しないことを確認
+        var filteredMetadataDoc = PdfDocument.Create();
+        filteredMetadataDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var filteredMetadataStream = new PdfStream(
+            new PdfDictionary
+            {
+                ["Type"] = new PdfName("Metadata"),
+                ["Subtype"] = new PdfName("XML"),
+                ["Filter"] = new PdfName("FlateDecode"),
+                ["DecodeParms"] = new PdfDictionary(),
+            },
+            Encoding.UTF8.GetBytes("<compressed-xmp/>"));
+        var filteredMetadataObject = filteredMetadataDoc.AddObject(filteredMetadataStream);
+        filteredMetadataDoc.CatalogDictionary["Metadata"] = filteredMetadataObject.Reference;
+        var filteredMetadataBytes = filteredMetadataDoc.Save();
+        var reloadedFilteredMetadataDoc = PdfDocument.Load(filteredMetadataBytes);
+        Assert.True(reloadedFilteredMetadataDoc.Metadata is null, "Filter 付き Metadata stream が採用されました。");
+        Assert.True(reloadedFilteredMetadataDoc.GetXmpMetadata() is null, "Filter 付き Metadata stream のデータが取得できてしまいます。");
+
         Assert.True(syncedText.Contains("begin=\"\uFEFF\"", StringComparison.Ordinal), "xpacket begin に UTF-8 BOM 文字が設定されていません。");
     }
 }
