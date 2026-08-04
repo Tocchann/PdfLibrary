@@ -495,6 +495,8 @@ internal static class Program
             ["Title"] = new PdfString("テストドキュメント"),
             ["Author"] = new PdfString("テスト太郎"),
             ["Producer"] = new PdfString("PdfLibrary"),
+            ["CreationDate"] = new PdfString("D:20260804120000+09'00'"),
+            ["ModDate"] = new PdfString("D:20260804121000+09'00'"),
         });
 
         syncDoc.SyncXmpFromInfo();
@@ -506,6 +508,8 @@ internal static class Program
         Assert.True(syncedText.Contains("テスト太郎", StringComparison.Ordinal), "XMP に Author が含まれていません。");
         Assert.True(syncedText.Contains("PdfLibrary", StringComparison.Ordinal), "XMP に Producer が含まれていません。");
         Assert.True(syncedText.Contains("xmpmeta", StringComparison.Ordinal), "生成された XMP が x:xmpmeta を含みません。");
+        Assert.True(!syncedText.Contains("<xmp:CreateDate>", StringComparison.Ordinal), "PDF日付文字列の CreationDate が XMP に出力されています。");
+        Assert.True(!syncedText.Contains("<xmp:ModifyDate>", StringComparison.Ordinal), "PDF日付文字列の ModDate が XMP に出力されています。");
 
         // Info なしで SyncXmpFromInfo を呼んでも例外が出ないことを確認
         var noInfoDoc = PdfDocument.Create();
@@ -571,6 +575,44 @@ internal static class Program
         Assert.True(bomHexSyncedText.Contains("BOMタイトル", StringComparison.Ordinal), "BOM付き PdfHexString の Title が XMP に同期されていません。");
         Assert.True(bomHexSyncedText.Contains("BOM著者", StringComparison.Ordinal), "BOM付き PdfHexString の Author が XMP に同期されていません。");
 
+        // /Length が間接参照でも GetXmpMetadata が正しい長さで返せることを確認
+        var lengthRefDoc = PdfDocument.Create();
+        lengthRefDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var expectedLengthXml = "<slice/>";
+        var longXml = Encoding.UTF8.GetBytes(expectedLengthXml + "EXTRA");
+        lengthRefDoc.SetXmpMetadata(longXml);
+        var lengthObject = lengthRefDoc.AddObject(new PdfNumber(expectedLengthXml.Length));
+        var currentMetadataStream = (PdfStream)lengthRefDoc.Metadata!.Value;
+        var currentMetadataDict = currentMetadataStream.Dictionary.Clone();
+        currentMetadataDict["Length"] = lengthObject.Reference;
+        lengthRefDoc.Metadata.Value = new PdfStream(currentMetadataDict, longXml);
+        var slicedData = lengthRefDoc.GetXmpMetadata();
+        Assert.True(slicedData is not null, "間接Length参照で XMP データ取得に失敗しました。");
+        Assert.Equal(expectedLengthXml, Encoding.UTF8.GetString(slicedData!), "間接Length参照で XMP データ長が切り詰められていません。");
+
+        // Catalog に既存 Metadata 参照がある場合は SetXmpMetadata で再利用することを確認
+        var reuseDoc = PdfDocument.Create();
+        reuseDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var legacyMetadataObject = reuseDoc.AddObject(
+            new PdfStream(
+                new PdfDictionary
+                {
+                    ["Type"] = new PdfName("Metadata"),
+                    ["Subtype"] = new PdfName("XML"),
+                },
+                Encoding.UTF8.GetBytes("<legacy/>")));
+        reuseDoc.CatalogDictionary["Metadata"] = legacyMetadataObject.Reference;
+        var countBeforeReuse = reuseDoc.Objects.Count;
+        reuseDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<updated-legacy/>"));
+        Assert.Equal(countBeforeReuse, reuseDoc.Objects.Count, "既存 Metadata 参照再利用時に不要なオブジェクトが追加されました。");
+        Assert.True(reuseDoc.GetXmpMetadata() is not null && Encoding.UTF8.GetString(reuseDoc.GetXmpMetadata()!).StartsWith("<updated-legacy/>", StringComparison.Ordinal), "既存 Metadata 参照の再利用上書きに失敗しました。");
+
         // ClearXmpMetadata で Metadata と /Catalog/Metadata 参照が掃除されることを確認
         var removeDoc = PdfDocument.Create();
         removeDoc.AddPage(new PdfDictionary
@@ -593,6 +635,24 @@ internal static class Program
         orphanDoc.CatalogDictionary["Metadata"] = new PdfReference(9999);
         Assert.True(orphanDoc.ClearXmpMetadata(), "孤立した /Catalog/Metadata の削除が true を返しません。");
         Assert.True(!orphanDoc.CatalogDictionary.ContainsKey("Metadata"), "孤立した /Catalog/Metadata が削除されていません。");
+
+        // Metadata 状態が null でも Catalog 参照先実体があれば削除されることを確認
+        var orphanObjectDoc = PdfDocument.Create();
+        orphanObjectDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var orphanObject = orphanObjectDoc.AddObject(
+            new PdfStream(
+                new PdfDictionary
+                {
+                    ["Type"] = new PdfName("Metadata"),
+                    ["Subtype"] = new PdfName("XML"),
+                },
+                Encoding.UTF8.GetBytes("<orphan/>")));
+        orphanObjectDoc.CatalogDictionary["Metadata"] = orphanObject.Reference;
+        Assert.True(orphanObjectDoc.ClearXmpMetadata(), "Catalog 参照先 Metadata の削除が true を返しません。");
+        Assert.True(!orphanObjectDoc.Objects.Any(item => item.ObjectNumber == orphanObject.ObjectNumber), "Catalog 参照先の Metadata 実体が削除されていません。");
 
         // /Type /Subtype が一致しない stream は Metadata として採用しないことを確認
         var invalidMetadataDoc = PdfDocument.Create();

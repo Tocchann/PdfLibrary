@@ -106,10 +106,8 @@ public sealed class PdfDocument
     {
         if (Metadata?.Value is PdfStream stream)
         {
-            if (stream.Dictionary.TryGetValue("Length", out var lengthValue) &&
-                lengthValue is PdfNumber lengthNumber)
+            if (TryGetLengthFromStream(stream, out var length))
             {
-                var length = (int)lengthNumber.Value;
                 if (length >= 0 && length <= stream.Data.Length)
                 {
                     var sliced = new byte[length];
@@ -136,16 +134,28 @@ public sealed class PdfDocument
             ["Subtype"] = new PdfName("XML"),
         };
 
-        if (Metadata is not null)
+        PdfIndirectObject? targetMetadata = Metadata;
+        if (targetMetadata is null &&
+            CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
+            metadataValue is PdfReference metadataReference &&
+            TryGetObject(metadataReference, out var metadataObject) &&
+            metadataObject is not null)
         {
-            Metadata.Value = new PdfStream(streamDict, metadataBytes);
+            targetMetadata = metadataObject;
+            Metadata = metadataObject;
+        }
+
+        if (targetMetadata is null)
+        {
+            targetMetadata = AddObjectCore(new PdfStream(streamDict, metadataBytes));
+            Metadata = targetMetadata;
         }
         else
         {
-            Metadata = AddObjectCore(new PdfStream(streamDict, metadataBytes));
+            targetMetadata.Value = new PdfStream(streamDict, metadataBytes);
         }
 
-        CatalogDictionary["Metadata"] = Metadata.Reference;
+        CatalogDictionary["Metadata"] = targetMetadata.Reference;
     }
 
     /// <summary>XMP Metadata ストリームを削除します。存在した場合は true を返します。</summary>
@@ -153,7 +163,20 @@ public sealed class PdfDocument
     {
         if (Metadata is null)
         {
-            return CatalogDictionary.Remove("Metadata");
+            if (!(CatalogDictionary.TryGetValue("Metadata", out var metadataValue) && metadataValue is PdfReference metadataReference))
+            {
+                return false;
+            }
+
+            CatalogDictionary.Remove("Metadata");
+            if (TryGetObject(metadataReference, out var metadataObject) &&
+                metadataObject is not null &&
+                !IsReferencedElsewhere(metadataReference, metadataReference.ObjectNumber))
+            {
+                RemoveObjectCore(metadataReference);
+            }
+
+            return true;
         }
 
         return RemoveObjectCore(Metadata.Reference);
@@ -239,12 +262,12 @@ public sealed class PdfDocument
             sb.AppendLine($"      <pdf:Producer>{EscapeXml(producer)}</pdf:Producer>");
         }
 
-        if (creationDate is not null)
+        if (creationDate is not null && IsIso8601Date(creationDate))
         {
             sb.AppendLine($"      <xmp:CreateDate>{EscapeXml(creationDate)}</xmp:CreateDate>");
         }
 
-        if (modDate is not null)
+        if (modDate is not null && IsIso8601Date(modDate))
         {
             sb.AppendLine($"      <xmp:ModifyDate>{EscapeXml(modDate)}</xmp:ModifyDate>");
         }
@@ -273,6 +296,39 @@ public sealed class PdfDocument
         }
 
         return System.Text.Encoding.UTF8.GetString(data);
+    }
+
+    private static bool IsIso8601Date(string value)
+        => DateTimeOffset.TryParseExact(
+            value,
+            ["yyyy-MM-dd", "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _);
+
+    private bool TryGetLengthFromStream(PdfStream stream, out int length)
+    {
+        length = 0;
+        if (!stream.Dictionary.TryGetValue("Length", out var lengthValue))
+        {
+            return false;
+        }
+
+        if (lengthValue is PdfNumber directLength)
+        {
+            length = (int)directLength.Value;
+            return true;
+        }
+
+        if (lengthValue is PdfReference lengthReference &&
+            TryGetObject(lengthReference, out var lengthObject) &&
+            lengthObject?.Value is PdfNumber indirectLength)
+        {
+            length = (int)indirectLength.Value;
+            return true;
+        }
+
+        return false;
     }
 
     private static string EscapeXml(string value)
