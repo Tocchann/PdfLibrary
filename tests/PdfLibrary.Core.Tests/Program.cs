@@ -357,7 +357,94 @@ internal static class Program
             "添付ファイルの読込に失敗しました。");
         Assert.True(loadedAttachDocument.EmbeddedFilesNameTree is not null, "EmbeddedFilesNameTree の内部状態が読み込まれていません。");
 
+        // --- Wave 4: SIGN-001 署名フィールド管理 ---
+        TestSigning();
+
         Console.WriteLine("PdfLibrary.Core tests passed.");
+    }
+
+    private static void TestSigning()
+    {
+        // --- Wave 4: SIGN-001 署名フィールド管理 ---
+
+        // 基本的な署名準備フロー
+        var sigDoc = PdfDocument.Create();
+        sigDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+
+        var options = new PdfLibrary.Extensions.Signing.PdfSignatureOptions
+        {
+            FieldName = "Sig1",
+            PageIndex = 0,
+            ContentsReserveSize = 1024,
+        };
+
+        var context = PdfLibrary.Extensions.Signing.PdfSigningSession.Prepare(sigDoc, options);
+
+        Assert.True(context.PreparedBytes.Length > 0, "準備済みバイト列が空です。");
+        Assert.Equal(4, context.ByteRange.Length, "ByteRange の要素数が 4 でありません。");
+        Assert.Equal(0L, context.ByteRange[0], "ByteRange[0] は 0 でなければなりません。");
+        Assert.True(context.ByteRange[1] > 0, "ByteRange[1] は正の値でなければなりません。");
+        Assert.True(context.ByteRange[2] > context.ByteRange[1], "ByteRange[2] > ByteRange[1] でなければなりません。");
+        Assert.True(context.ByteRange[3] > 0, "ByteRange[3] は正の値でなければなりません。");
+        Assert.Equal(
+            (long)context.PreparedBytes.Length,
+            context.ByteRange[2] + context.ByteRange[3],
+            "ByteRange[2] + ByteRange[3] はファイルサイズでなければなりません。");
+        Assert.Equal(context.ContentsHexLength, options.ContentsReserveSize * 2, "ContentsHexLength が一致しません。");
+
+        // /Contents 位置の検証
+        Assert.True(context.ContentsDataStart > 0, "ContentsDataStart が 0 です。");
+        Assert.Equal(context.ByteRange[1], context.ContentsDataStart - 1, "ContentsDataStart は ByteRange[1]+1 でなければなりません。");
+
+        // 署名対象バイト列の検証
+        var signedContent = PdfLibrary.Extensions.Signing.PdfSigningSession.ExtractSignedContent(context);
+        Assert.True(signedContent.Length > 0, "署名対象バイト列が空です。");
+        Assert.Equal(
+            context.ByteRange[1] + context.ByteRange[3],
+            (long)signedContent.Length,
+            "署名対象バイト列の長さが ByteRange と一致しません。");
+
+        // Apply: モック CMS バイト列で署名適用
+        var fakeCms = new byte[] { 0x30, 0x82, 0x01, 0x00 };
+        var signedBytes = PdfLibrary.Extensions.Signing.PdfSigningSession.Apply(context, fakeCms);
+
+        Assert.Equal(context.PreparedBytes.Length, signedBytes.Length, "署名済みバイト列の長さが変わりました。");
+        var signedText = Encoding.ASCII.GetString(signedBytes, (int)context.ContentsDataStart, fakeCms.Length * 2);
+        Assert.Equal(Convert.ToHexString(fakeCms), signedText, "署名済みバイト列内の /Contents が一致しません。");
+
+        // プレースホルダ超過エラー
+        var tooLargeCms = new byte[options.ContentsReserveSize + 1];
+        Assert.Throws<PdfLibrary.Extensions.Signing.PdfSigningException>(
+            () => PdfLibrary.Extensions.Signing.PdfSigningSession.Apply(context, tooLargeCms),
+            "プレースホルダを超える CMS で例外が発生しませんでした。");
+
+        // ページ範囲外エラー
+        var badOptions = new PdfLibrary.Extensions.Signing.PdfSignatureOptions { PageIndex = 99 };
+        Assert.Throws<PdfLibrary.Extensions.Signing.PdfSigningException>(
+            () => PdfLibrary.Extensions.Signing.PdfSigningSession.Prepare(sigDoc, badOptions),
+            "ページ範囲外で例外が発生しませんでした。");
+
+        // PdfHexString の読み書き round-trip
+        var hexDoc = PdfDocument.Create();
+        hexDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var hexData = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
+        hexDoc.CatalogDictionary["TestHex"] = new PdfHexString(hexData);
+        var hexBytes = hexDoc.Save();
+        var hexText = Encoding.UTF8.GetString(hexBytes);
+        Assert.True(hexText.Contains("<DEADBEEF>", StringComparison.OrdinalIgnoreCase), "/TestHex の hex 文字列が見つかりません。");
+
+        var reloadedHex = PdfDocument.Load(hexBytes);
+        Assert.True(
+            reloadedHex.CatalogDictionary.TryGetValue("TestHex", out var reloadedValue) && reloadedValue is PdfHexString,
+            "PdfHexString の round-trip に失敗しました。");
+        var reloadedHexData = ((PdfHexString)reloadedValue!).Data;
+        Assert.True(reloadedHexData.SequenceEqual(hexData), "PdfHexString の round-trip 後のデータが一致しません。");
     }
 }
 

@@ -56,6 +56,15 @@ public sealed class PdfName : PdfValue, IEquatable<PdfName>
     public static implicit operator PdfName(string value) => new(value);
 }
 
+public sealed class PdfHexString : PdfValue
+{
+    public PdfHexString(byte[] data) => Data = data ?? throw new ArgumentNullException(nameof(data));
+
+    public byte[] Data { get; }
+
+    public override PdfValueKind Kind => PdfValueKind.HexString;
+}
+
 public sealed class PdfString : PdfValue
 {
     public PdfString(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));

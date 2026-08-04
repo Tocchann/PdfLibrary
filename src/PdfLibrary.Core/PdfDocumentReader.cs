@@ -147,6 +147,11 @@ internal static class PdfDocumentReader
                 return new PdfString(ParseLiteralString());
             }
 
+            if (_text[_index] == '<' && !Peek("<<"))
+            {
+                return ParseHexString();
+            }
+
             if (_text[_index] == '/')
             {
                 return new PdfName(ParseName());
@@ -299,6 +304,33 @@ internal static class PdfDocumentReader
             }
 
             return builder.ToString();
+        }
+
+        private PdfHexString ParseHexString()
+        {
+            Expect("<");
+            var start = _index;
+            while (_index < _text.Length && _text[_index] != '>')
+            {
+                _index++;
+            }
+
+            var hex = _text[start.._index];
+            Expect(">");
+
+            var normalized = hex.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+            if (normalized.Length % 2 != 0)
+            {
+                normalized += "0";
+            }
+
+            var bytes = new byte[normalized.Length / 2];
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                bytes[i] = byte.Parse(normalized.AsSpan(i * 2, 2), NumberStyles.HexNumber);
+            }
+
+            return new PdfHexString(bytes);
         }
 
         private string ParseName()

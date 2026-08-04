@@ -1,12 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\PdfLibrary.Core\PdfLibrary.Core.csproj" />
-    <ProjectReference Include="..\..\src\PdfLibrary.Extensions.Signing\PdfLibrary.Extensions.Signing.csproj" />
+    <ProjectReference Include="..\PdfLibrary.Core\PdfLibrary.Core.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

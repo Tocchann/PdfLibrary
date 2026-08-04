@@ -12,6 +12,7 @@ public enum PdfValueKind
     Number,
     Name,
     String,
+    HexString,
     Array,
     Dictionary,
     Stream,

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PdfLibrary.Core/PdfLibrary.Core.csproj" />
+    <Project Path="src/PdfLibrary.Extensions.Signing/PdfLibrary.Extensions.Signing.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PdfLibrary.Core.Tests/PdfLibrary.Core.Tests.csproj" />
