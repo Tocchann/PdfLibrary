@@ -613,6 +613,28 @@ internal static class Program
         Assert.Equal(countBeforeReuse, reuseDoc.Objects.Count, "既存 Metadata 参照再利用時に不要なオブジェクトが追加されました。");
         Assert.True(reuseDoc.GetXmpMetadata() is not null && Encoding.UTF8.GetString(reuseDoc.GetXmpMetadata()!).StartsWith("<updated-legacy/>", StringComparison.Ordinal), "既存 Metadata 参照の再利用上書きに失敗しました。");
 
+        // 既存 Catalog Metadata が再利用不可でも、置換後に旧実体が残留しないことを確認
+        var replaceDoc = PdfDocument.Create();
+        replaceDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        var oldMetadataObject = replaceDoc.AddObject(
+            new PdfStream(
+                new PdfDictionary
+                {
+                    ["Type"] = new PdfName("Metadata"),
+                    ["Subtype"] = new PdfName("XML"),
+                    ["Filter"] = new PdfName("FlateDecode"),
+                },
+                Encoding.UTF8.GetBytes("<old-metadata/>")));
+        replaceDoc.CatalogDictionary["Metadata"] = oldMetadataObject.Reference;
+        var beforeReplaceCount = replaceDoc.Objects.Count;
+        replaceDoc.SetXmpMetadata(Encoding.UTF8.GetBytes("<new-metadata/>"));
+        Assert.Equal(beforeReplaceCount, replaceDoc.Objects.Count, "再利用不可 Metadata の置換で旧実体が残留しています。");
+        Assert.True(!replaceDoc.Objects.Any(item => item.ObjectNumber == oldMetadataObject.ObjectNumber), "旧 Metadata 実体がオブジェクト一覧に残っています。");
+        Assert.True(Encoding.UTF8.GetString(replaceDoc.GetXmpMetadata()!).StartsWith("<new-metadata/>", StringComparison.Ordinal), "置換後 Metadata が更新されていません。");
+
         // ClearXmpMetadata で Metadata と /Catalog/Metadata 参照が掃除されることを確認
         var removeDoc = PdfDocument.Create();
         removeDoc.AddPage(new PdfDictionary

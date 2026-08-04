@@ -135,6 +135,7 @@ public sealed class PdfDocument
         };
 
         PdfIndirectObject? targetMetadata = Metadata;
+        PdfReference? previousCatalogMetadataReference = null;
         if (targetMetadata is null &&
             CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
             metadataValue is PdfReference metadataReference &&
@@ -151,6 +152,13 @@ public sealed class PdfDocument
         {
             targetMetadata = metadataObject;
             Metadata = metadataObject;
+            previousCatalogMetadataReference = metadataReference;
+        }
+        else if (targetMetadata is null &&
+                 CatalogDictionary.TryGetValue("Metadata", out var existingMetadataValue) &&
+                 existingMetadataValue is PdfReference existingMetadataReference)
+        {
+            previousCatalogMetadataReference = existingMetadataReference;
         }
 
         if (targetMetadata is null)
@@ -164,6 +172,12 @@ public sealed class PdfDocument
         }
 
         CatalogDictionary["Metadata"] = targetMetadata.Reference;
+        if (previousCatalogMetadataReference is not null &&
+            !previousCatalogMetadataReference.Equals(targetMetadata.Reference) &&
+            !IsReferencedElsewhere(previousCatalogMetadataReference, previousCatalogMetadataReference.ObjectNumber))
+        {
+            RemoveObjectCore(previousCatalogMetadataReference);
+        }
     }
 
     /// <summary>XMP Metadata ストリームを削除します。存在した場合は true を返します。</summary>
