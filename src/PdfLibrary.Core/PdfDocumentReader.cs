@@ -88,6 +88,14 @@ internal static class PdfDocumentReader
             document.SetEmbeddedFilesNameTreeState(embeddedFilesObject);
         }
 
+        if (document.CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
+            metadataValue is PdfReference metadataReference &&
+            objects.TryGetValue(metadataReference.ObjectNumber, out var metadataObject) &&
+            metadataObject.Value is PdfStream)
+        {
+            document.SetMetadataState(metadataObject);
+        }
+
         document.RebuildPageTree();
         document.SetOriginalState(bytes, TryReadStartXref(bytes));
         return document;

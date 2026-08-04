@@ -360,6 +360,9 @@ internal static class Program
         // --- Wave 4: SIGN-001 署名フィールド管理 ---
         TestSigning();
 
+        // --- XMP Metadata (14.3) ---
+        TestXmpMetadata();
+
         Console.WriteLine("PdfLibrary.Core tests passed.");
     }
 
@@ -445,6 +448,74 @@ internal static class Program
             "PdfHexString の round-trip に失敗しました。");
         var reloadedHexData = ((PdfHexString)reloadedValue!).Data;
         Assert.True(reloadedHexData.SequenceEqual(hexData), "PdfHexString の round-trip 後のデータが一致しません。");
+    }
+
+    private static void TestXmpMetadata()
+    {
+        // SetXmpMetadata / GetXmpMetadata の round-trip
+        var xmpDoc = PdfDocument.Create();
+        xmpDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+
+        Assert.True(xmpDoc.GetXmpMetadata() is null, "初期状態で XMP が存在しています。");
+
+        var xmpXml = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>");
+        xmpDoc.SetXmpMetadata(xmpXml);
+
+        var retrieved = xmpDoc.GetXmpMetadata();
+        Assert.True(retrieved is not null, "SetXmpMetadata 後に GetXmpMetadata が null を返しました。");
+        Assert.True(retrieved!.SequenceEqual(xmpXml), "GetXmpMetadata のデータが一致しません。");
+        Assert.True(xmpDoc.CatalogDictionary.ContainsKey("Metadata"), "/Catalog/Metadata が設定されていません。");
+
+        // 保存 → 読み込み round-trip
+        var xmpBytes = xmpDoc.Save();
+        var xmpText = Encoding.UTF8.GetString(xmpBytes);
+        Assert.True(xmpText.Contains("x:xmpmeta", StringComparison.Ordinal), "保存された PDF に XMP ストリームがありません。");
+
+        var reloadedXmp = PdfDocument.Load(xmpBytes);
+        Assert.True(reloadedXmp.Metadata is not null, "読み込み後に Metadata が null です。");
+        var reloadedData = reloadedXmp.GetXmpMetadata();
+        Assert.True(reloadedData is not null, "読み込み後の GetXmpMetadata が null です。");
+        Assert.True(Encoding.UTF8.GetString(reloadedData!).Contains("x:xmpmeta", StringComparison.Ordinal), "読み込んだ XMP データが不正です。");
+
+        // SyncXmpFromInfo テスト
+        var syncDoc = PdfDocument.Create();
+        syncDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        syncDoc.SetInfo(new PdfDictionary
+        {
+            ["Title"] = new PdfString("テストドキュメント"),
+            ["Author"] = new PdfString("テスト太郎"),
+            ["Producer"] = new PdfString("PdfLibrary"),
+        });
+
+        syncDoc.SyncXmpFromInfo();
+
+        var syncedXmp = syncDoc.GetXmpMetadata();
+        Assert.True(syncedXmp is not null, "SyncXmpFromInfo 後に GetXmpMetadata が null です。");
+        var syncedText = Encoding.UTF8.GetString(syncedXmp!);
+        Assert.True(syncedText.Contains("テストドキュメント", StringComparison.Ordinal), "XMP に Title が含まれていません。");
+        Assert.True(syncedText.Contains("テスト太郎", StringComparison.Ordinal), "XMP に Author が含まれていません。");
+        Assert.True(syncedText.Contains("PdfLibrary", StringComparison.Ordinal), "XMP に Producer が含まれていません。");
+        Assert.True(syncedText.Contains("xmpmeta", StringComparison.Ordinal), "生成された XMP が x:xmpmeta を含みません。");
+
+        // Info なしで SyncXmpFromInfo を呼んでも例外が出ないことを確認
+        var noInfoDoc = PdfDocument.Create();
+        noInfoDoc.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(595), new PdfNumber(842) },
+        });
+        noInfoDoc.SyncXmpFromInfo();
+        Assert.True(noInfoDoc.GetXmpMetadata() is null, "Info なしの SyncXmpFromInfo が XMP を生成しました。");
+
+        // SetXmpMetadata の上書き確認
+        var updatedXml = Encoding.UTF8.GetBytes("<updated/>");
+        xmpDoc.SetXmpMetadata(updatedXml);
+        Assert.True(xmpDoc.GetXmpMetadata()!.SequenceEqual(updatedXml), "SetXmpMetadata の上書きが反映されていません。");
     }
 }
 

@@ -22,10 +22,10 @@
 | Wave 3 | FORM-001, FILE-ATTACH-001 | 機能拡張として自然に接続可能 |
 | Wave 4 | SIGN-001 | PKI連携・相互運用検証コストが高いため段階投入 |
 
-## 3. API 境界（.NET Standard 2.0）
+## 3. API 境界（.NET 10+）
 
 | 層 | 役割 | 依存 |
 |---|---|---|
-| Core (`PdfLibrary.Core`) | パーサ、オブジェクトモデル、編集、保存 | .NET Standard 2.0 のみ |
+| Core (`PdfLibrary.Core`) | パーサ、オブジェクトモデル、編集、保存 | .NET 10+ |
 | Extensions (`PdfLibrary.Extensions.Signing`) | 署名準備・署名辞書操作 | Core + 暗号プロバイダ抽象 |
 | Host adapters | WPF/WinForms 向け利便API | UI固有型への薄い変換のみ |

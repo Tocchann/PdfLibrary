@@ -28,6 +28,8 @@ public sealed class PdfDocument
 
     public PdfIndirectObject? Info { get; internal set; }
 
+    public PdfIndirectObject? Metadata { get; private set; }
+
     public PdfIndirectObject? Outlines { get; private set; }
 
     public PdfIndirectObject? AcroForm { get; private set; }
@@ -98,6 +100,128 @@ public sealed class PdfDocument
         Info = AddObjectCore(info);
         return Info;
     }
+
+    /// <summary>XMP Metadata ストリームのバイト列（UTF-8 XML）を返します。存在しない場合は null。</summary>
+    public byte[]? GetXmpMetadata()
+    {
+        if (Metadata?.Value is PdfStream stream)
+        {
+            return stream.Data;
+        }
+
+        return null;
+    }
+
+    /// <summary>XMP Metadata ストリームを設定します。xmpData は UTF-8 エンコードの XMP パケット XML です。</summary>
+    public void SetXmpMetadata(byte[] xmpData)
+    {
+        ArgumentNullException.ThrowIfNull(xmpData);
+
+        var streamDict = new PdfDictionary
+        {
+            ["Type"] = new PdfName("Metadata"),
+            ["Subtype"] = new PdfName("XML"),
+        };
+
+        if (Metadata is not null)
+        {
+            Metadata.Value = new PdfStream(streamDict, xmpData);
+        }
+        else
+        {
+            Metadata = AddObjectCore(new PdfStream(streamDict, xmpData));
+            CatalogDictionary["Metadata"] = Metadata.Reference;
+        }
+    }
+
+    /// <summary>
+    /// /Info 辞書の内容から最小限の XMP パケットを生成して SetXmpMetadata() を呼び出します。
+    /// Info が設定されていない場合は何もしません。
+    /// </summary>
+    public void SyncXmpFromInfo()
+    {
+        if (Info?.Value is not PdfDictionary infoDict)
+        {
+            return;
+        }
+
+        var xml = BuildMinimalXmp(infoDict);
+        SetXmpMetadata(System.Text.Encoding.UTF8.GetBytes(xml));
+    }
+
+    private static string BuildMinimalXmp(PdfDictionary info)
+    {
+        static string? GetStr(PdfDictionary d, string key)
+            => d.TryGetValue(key, out var v) && v is PdfString s ? s.Value : null;
+
+        var title = GetStr(info, "Title");
+        var author = GetStr(info, "Author");
+        var subject = GetStr(info, "Subject");
+        var keywords = GetStr(info, "Keywords");
+        var creator = GetStr(info, "Creator");
+        var producer = GetStr(info, "Producer");
+        var creationDate = GetStr(info, "CreationDate");
+        var modDate = GetStr(info, "ModDate");
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
+        sb.AppendLine("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">");
+        sb.AppendLine("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">");
+        sb.AppendLine("    <rdf:Description rdf:about=\"\"");
+        sb.AppendLine("        xmlns:dc=\"http://purl.org/dc/elements/1.1/\"");
+        sb.AppendLine("        xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"");
+        sb.AppendLine("        xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">");
+
+        if (title is not null)
+        {
+            sb.AppendLine($"      <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{EscapeXml(title)}</rdf:li></rdf:Alt></dc:title>");
+        }
+
+        if (author is not null)
+        {
+            sb.AppendLine($"      <dc:creator><rdf:Seq><rdf:li>{EscapeXml(author)}</rdf:li></rdf:Seq></dc:creator>");
+        }
+
+        if (subject is not null)
+        {
+            sb.AppendLine($"      <dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">{EscapeXml(subject)}</rdf:li></rdf:Alt></dc:description>");
+        }
+
+        if (keywords is not null)
+        {
+            sb.AppendLine($"      <pdf:Keywords>{EscapeXml(keywords)}</pdf:Keywords>");
+        }
+
+        if (creator is not null)
+        {
+            sb.AppendLine($"      <xmp:CreatorTool>{EscapeXml(creator)}</xmp:CreatorTool>");
+        }
+
+        if (producer is not null)
+        {
+            sb.AppendLine($"      <pdf:Producer>{EscapeXml(producer)}</pdf:Producer>");
+        }
+
+        if (creationDate is not null)
+        {
+            sb.AppendLine($"      <xmp:CreateDate>{EscapeXml(creationDate)}</xmp:CreateDate>");
+        }
+
+        if (modDate is not null)
+        {
+            sb.AppendLine($"      <xmp:ModifyDate>{EscapeXml(modDate)}</xmp:ModifyDate>");
+        }
+
+        sb.AppendLine("    </rdf:Description>");
+        sb.AppendLine("  </rdf:RDF>");
+        sb.AppendLine("</x:xmpmeta>");
+        sb.AppendLine("<?xpacket end=\"w\"?>");
+
+        return sb.ToString();
+    }
+
+    private static string EscapeXml(string value)
+        => value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     public PdfIndirectObject AddAnnotation(int pageIndex, PdfDictionary annotationDictionary)
     {
@@ -263,6 +387,11 @@ public sealed class PdfDocument
     internal void SetEmbeddedFilesNameTreeState(PdfIndirectObject? nameTree)
     {
         EmbeddedFilesNameTree = nameTree;
+    }
+
+    internal void SetMetadataState(PdfIndirectObject? metadata)
+    {
+        Metadata = metadata;
     }
 
     public PdfIndirectObject AddFormField(PdfFormField field)
@@ -736,6 +865,11 @@ public sealed class PdfDocument
         if (EmbeddedFilesNameTree is not null && EmbeddedFilesNameTree.Reference.Equals(reference))
         {
             EmbeddedFilesNameTree = null;
+        }
+
+        if (Metadata is not null && Metadata.Reference.Equals(reference))
+        {
+            Metadata = null;
         }
 
         return true;
