@@ -48,6 +48,10 @@ public sealed class PdfDocument
 
     public PdfDictionary PagesDictionary => (PdfDictionary)Pages.Value;
 
+    public int PageCount => PagesDictionary.TryGetValue("Count", out var countValue) && countValue is PdfNumber count
+        ? (int)count.Value
+        : 0;
+
     public static PdfDocument Create() => new();
 
     public PdfIndirectObject AddObject(PdfValue value) => AddObjectCore(value);
@@ -107,6 +111,16 @@ public sealed class PdfDocument
         var annots = GetOrCreateAnnotsArray(pageDictionary);
         annots.Add(annotation.Reference);
         return annotation;
+    }
+
+    /// <summary>Widget アノテーションとして追加し、AcroForm にも登録します。</summary>
+    public PdfIndirectObject RegisterFormField(int pageIndex, PdfDictionary fieldDictionary)
+    {
+        ArgumentNullException.ThrowIfNull(fieldDictionary);
+
+        var field = AddAnnotation(pageIndex, fieldDictionary);
+        EnsureAcroFormField(field);
+        return field;
     }
 
     public IReadOnlyList<PdfIndirectObject> GetAnnotations(int pageIndex)

@@ -148,6 +148,16 @@ internal static class PdfDocumentWriter
                 writer.Write(EscapeLiteralString(stringValue.Value));
                 writer.Write(')');
                 return;
+            case PdfHexString hexStringValue:
+                writer.Write('<');
+                writer.Flush();
+                foreach (var b in hexStringValue.Data)
+                {
+                    writer.BaseStream!.WriteByte((byte)HexChar(b >> 4));
+                    writer.BaseStream!.WriteByte((byte)HexChar(b & 0xF));
+                }
+                writer.Write('>');
+                return;
             case PdfReference reference:
                 writer.Write(reference.ObjectNumber);
                 writer.Write(' ');
@@ -207,4 +217,6 @@ internal static class PdfDocumentWriter
 
     private static string EscapeLiteralString(string value)
         => value.Replace(@"\", @"\\").Replace("(", @"\(").Replace(")", @"\)");
+
+    private static char HexChar(int nibble) => nibble < 10 ? (char)('0' + nibble) : (char)('A' + nibble - 10);
 }
