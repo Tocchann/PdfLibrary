@@ -139,7 +139,15 @@ public sealed class PdfDocument
             CatalogDictionary.TryGetValue("Metadata", out var metadataValue) &&
             metadataValue is PdfReference metadataReference &&
             TryGetObject(metadataReference, out var metadataObject) &&
-            metadataObject is not null)
+            metadataObject?.Value is PdfStream existingStream &&
+            existingStream.Dictionary.TryGetValue("Type", out var typeValue) &&
+            typeValue is PdfName typeName &&
+            string.Equals(typeName.Value, "Metadata", StringComparison.Ordinal) &&
+            existingStream.Dictionary.TryGetValue("Subtype", out var subtypeValue) &&
+            subtypeValue is PdfName subtypeName &&
+            string.Equals(subtypeName.Value, "XML", StringComparison.Ordinal) &&
+            !existingStream.Dictionary.ContainsKey("Filter") &&
+            !existingStream.Dictionary.ContainsKey("DecodeParms"))
         {
             targetMetadata = metadataObject;
             Metadata = metadataObject;
