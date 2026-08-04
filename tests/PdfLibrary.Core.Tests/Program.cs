@@ -114,6 +114,117 @@ internal static class Program
         var invalidAnnotationIssues = validator.Validate(invalidAnnotationDocument);
         Assert.ContainsIssue(invalidAnnotationIssues, "CHK-004", "不正な注釈の CHK-004 検出に失敗しました。");
 
+        var annotationDocument = PdfDocument.Create();
+        annotationDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(220),
+                new PdfNumber(220),
+            },
+        });
+        var annotation = annotationDocument.AddAnnotation(0, new PdfDictionary
+        {
+            ["Subtype"] = new PdfName("Text"),
+            ["Rect"] = new PdfArray
+            {
+                new PdfNumber(10),
+                new PdfNumber(10),
+                new PdfNumber(50),
+                new PdfNumber(50),
+            },
+            ["Contents"] = new PdfString("メモ"),
+        });
+        var annotationDocumentText = Encoding.UTF8.GetString(annotationDocument.Save());
+        Assert.True(annotationDocumentText.Contains("/Annots", StringComparison.Ordinal), "注釈の保存に Annots がありません。");
+        Assert.True(annotationDocumentText.Contains("/Subtype /Text", StringComparison.Ordinal), "注釈の保存に Subtype がありません。");
+        Assert.Equal(1, annotationDocument.GetAnnotations(0).Count, "注釈の取得件数が一致しません。");
+        Assert.True(annotationDocument.RemoveAnnotation(0, annotation.Reference), "注釈の削除に失敗しました。");
+        Assert.Equal(0, annotationDocument.GetAnnotations(0).Count, "注釈削除後も Annots が残っています。");
+
+        var removedPageDocument = PdfDocument.Create();
+        removedPageDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(200),
+                new PdfNumber(200),
+            },
+        });
+        removedPageDocument.AddAnnotation(0, new PdfDictionary
+        {
+            ["Subtype"] = new PdfName("Text"),
+            ["Rect"] = new PdfArray
+            {
+                new PdfNumber(5),
+                new PdfNumber(5),
+                new PdfNumber(20),
+                new PdfNumber(20),
+            },
+            ["Contents"] = new PdfString("削除対象"),
+        });
+        removedPageDocument.RemovePageAt(0);
+        var removedPageText = Encoding.UTF8.GetString(removedPageDocument.Save());
+        Assert.True(!removedPageText.Contains("削除対象", StringComparison.Ordinal), "削除したページの注釈が残っています。");
+
+        var outlinePageDocument = PdfDocument.Create();
+        var outlinePage = outlinePageDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray
+            {
+                new PdfNumber(0),
+                new PdfNumber(0),
+                new PdfNumber(595),
+                new PdfNumber(842),
+            },
+        });
+        outlinePageDocument.SetOutlines(new[]
+        {
+            new PdfOutlineItem("Chapter 1")
+            {
+                Destination = new PdfArray
+                {
+                    outlinePage.Reference,
+                    new PdfName("Fit"),
+                },
+            },
+            new PdfOutlineItem("Chapter 2")
+            {
+                Destination = new PdfArray
+                {
+                    outlinePage.Reference,
+                    new PdfName("Fit"),
+                },
+                Children =
+                {
+                    new PdfOutlineItem("Section 2.1")
+                    {
+                        Destination = new PdfArray
+                        {
+                            outlinePage.Reference,
+                            new PdfName("Fit"),
+                        },
+                    },
+                },
+            },
+        });
+        var outlineBytes = outlinePageDocument.Save();
+        var outlineText = Encoding.UTF8.GetString(outlineBytes);
+        Assert.True(outlineText.Contains("/Outlines", StringComparison.Ordinal), "しおりの保存に Outlines がありません。");
+        Assert.True(outlineText.Contains("(Chapter 1)", StringComparison.Ordinal), "しおりの保存にタイトルがありません。");
+
+        var loadedOutlineDocument = PdfDocument.Load(outlineBytes);
+        Assert.True(
+            loadedOutlineDocument.CatalogDictionary.TryGetValue("Outlines", out var outlinesValue) && outlinesValue is PdfReference,
+            "しおりの読込に失敗しました。");
+        loadedOutlineDocument.ClearOutlines();
+        var clearedOutlineText = Encoding.UTF8.GetString(loadedOutlineDocument.Save());
+        Assert.True(!clearedOutlineText.Contains("/Outlines", StringComparison.Ordinal), "しおり削除後も Outlines が残っています。");
+
         var invalidSignatureDocument = PdfDocument.Create();
         invalidSignatureDocument.AddObject(new PdfDictionary
         {

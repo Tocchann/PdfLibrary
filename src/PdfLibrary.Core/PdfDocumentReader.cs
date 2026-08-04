@@ -63,6 +63,13 @@ internal static class PdfDocumentReader
             }
         }
 
+        if (document.CatalogDictionary.TryGetValue("Outlines", out var outlinesValue) &&
+            outlinesValue is PdfReference outlinesReference &&
+            objects.TryGetValue(outlinesReference.ObjectNumber, out var outlinesObject))
+        {
+            document.SetOutlinesState(outlinesObject);
+        }
+
         document.RebuildPageTree();
         document.SetOriginalState(bytes, TryReadStartXref(bytes));
         return document;
