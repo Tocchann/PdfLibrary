@@ -40,7 +40,9 @@ public sealed class PdfRenderContext
     {
         var grayColorSpace = new PdfDeviceGrayColorSpace();
         StrokingColor = new PdfColor { ColorSpace = grayColorSpace };
+        StrokingColor.SetComponents(0.0);
         NonStrokingColor = new PdfColor { ColorSpace = grayColorSpace };
+        NonStrokingColor.SetComponents(0.0);
     }
 
     public IReadOnlyList<PdfRenderCommand> Commands => _commands.AsReadOnly();
