@@ -843,7 +843,7 @@ internal static class Program
         });
 
         var textResult = textDocument.RenderPage(0);
-        Assert.True(textResult.Commands.Count >= 0, "テキスト描画コマンド生成に失敗しました。");
+        Assert.Equal(0, textResult.Commands.Count, "BT/ET のみでは描画コマンドが生成されない想定です。");
 
         // 色空間設定のテスト - パスのみで色設定なし
         var colorDocument = PdfDocument.Create();
