@@ -1,4 +1,4 @@
-# PDF 1.7 機能分解マップ（編集ライブラリ向け）
+# PDF 1.7 機能分解マップ（編集/レンダリングライブラリ向け）
 
 ## 1. コア編集機能マップ
 
@@ -29,3 +29,22 @@
 | Core (`PdfLibrary.Core`) | パーサ、オブジェクトモデル、編集、保存 | .NET 10+ |
 | Extensions (`PdfLibrary.Extensions.Signing`) | 署名準備・署名辞書操作 | Core + 暗号プロバイダ抽象 |
 | Host adapters | WPF/WinForms 向け利便API | UI固有型への薄い変換のみ |
+
+## 4. レンダリング機能マップ
+
+| Feature ID | 機能 | 主オブジェクト/キー | 参照章（ISO 32000-1） | 入力 | 出力 | 失敗条件 |
+|---|---|---|---|---|---|---|
+| RENDER-CTX-001 | 描画コンテキスト構築 | Graphics state stack, CTM, clipping path | 8.4, 8.5, 8.6 | ページ辞書、初期リソース、MediaBox | 初期化済み描画コンテキスト | 初期状態不整合、スタック破損 |
+| RENDER-PATH-001 | パス描画 | Path operators (`m`,`l`,`c`,`h`,`re`,`S`,`f`,`B`) | 8.5.2, 8.5.3 | コンテンツストリーム演算子列 | パス描画結果 | 演算子列破損、塗り/線画状態不整合 |
+| RENDER-TEXT-001 | テキスト描画 | Text state, text matrix, font resource | 9.2, 9.3, 9.4 | フォント辞書、文字列演算子列 | テキストレイアウト結果 | フォント未解決、テキスト行列不正 |
+| RENDER-COLOR-001 | 色空間・色設定 | `/ColorSpace`, stroking/non-stroking color | 8.6.3, 8.6.4 | 色空間定義、色演算子 | 色適用済み描画状態 | 未対応色空間、成分数不一致 |
+| RENDER-XOBJ-001 | XObject 描画 | `/XObject`, Form XObject, Image XObject | 8.8, 8.9 | XObject辞書、参照名 | 合成済み描画結果 | 参照切れ、再帰深度超過 |
+| RENDER-PAGE-001 | ページレンダリング統合 | Content streams, resources, transparency group | 7.8.3, 8.4, 11 | ページオブジェクト | ページ画像（ラスタライズ結果） | リソース解決失敗、描画中断 |
+
+## 5. レンダリング実装優先順位
+
+| 優先 | 対象 Feature ID | 理由 |
+|---|---|---|
+| Wave 5 | RENDER-CTX-001, RENDER-PATH-001 | 最小の図形描画パイプラインを先に成立させるため |
+| Wave 6 | RENDER-TEXT-001, RENDER-COLOR-001 | 業務文書の可読性に直結するテキストと色再現を強化するため |
+| Wave 7 | RENDER-XOBJ-001, RENDER-PAGE-001 | 画像/フォームXObjectとページ全体統合を最終段階で安定化するため |
