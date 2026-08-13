@@ -199,7 +199,7 @@ public sealed class PdfTextRenderer
 
         _context.RecordTextRun(textRun);
 
-        // テキス行列を前に進める
+        // テキスト行列を前に進める
         UpdateTextMatrixAfterShowText(textBytes);
     }
 
