@@ -756,7 +756,8 @@ internal static class Program
         Assert.Equal(1, strokeResult.Commands.Count, "stroke コマンド数が一致しません。");
         Assert.Equal(PdfPathPaintingOperator.Stroke, strokeResult.Commands[0].Operator, "stroke 演算子が一致しません。");
         Assert.Equal(5, strokeResult.Commands[0].Path.Segments.Count, "stroke パスのセグメント数が一致しません。");
-
+        var strokeLine1 = strokeResult.Commands[0].Path.Segments[1].Points[0];
+        Assert.True(Math.Abs(strokeLine1.X - 30) < 0.0001 && Math.Abs(strokeLine1.Y - 10) < 0.0001, "l 演算子の座標順 (x,y) が不正です。");
         var fillDocument = PdfDocument.Create();
         var fillStream1 = fillDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("0 0 1 0 5 5 cm")));
         var fillStream2 = fillDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("0 0 10 10 re f")));
