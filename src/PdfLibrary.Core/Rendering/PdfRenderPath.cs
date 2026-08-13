@@ -4,9 +4,9 @@ public sealed class PdfRenderPath
 {
     private readonly List<PdfPathSegment> _segments = [];
 
-    public IReadOnlyList<PdfPathSegment> Segments => _segments;
+    public IReadOnlyList<PdfPathSegment> Segments => _segments.AsReadOnly();
 
-    public void Add(PdfPathSegment segment) => _segments.Add(segment);
+    internal void Add(PdfPathSegment segment) => _segments.Add(segment);
 
-    public void Clear() => _segments.Clear();
+    internal void Clear() => _segments.Clear();
 }
