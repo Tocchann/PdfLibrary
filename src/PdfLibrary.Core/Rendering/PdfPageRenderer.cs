@@ -87,19 +87,13 @@ public sealed class PdfPageRenderer
                     ApplyMatrix(context, operands);
                     break;
                 case "m":
-                    builder.MoveTo(PopNumber(operands), PopNumber(operands));
+                    ApplyMoveTo(builder, operands);
                     break;
                 case "l":
-                    builder.LineTo(PopNumber(operands), PopNumber(operands));
+                    ApplyLineTo(builder, operands);
                     break;
                 case "c":
-                    builder.CurveTo(
-                        PopNumber(operands),
-                        PopNumber(operands),
-                        PopNumber(operands),
-                        PopNumber(operands),
-                        PopNumber(operands),
-                        PopNumber(operands));
+                    ApplyCurveTo(builder, operands);
                     break;
                 case "h":
                     builder.ClosePath();
@@ -146,6 +140,31 @@ public sealed class PdfPageRenderer
         var y = PopNumber(operands);
         var x = PopNumber(operands);
         builder.Rectangle(x, y, width, height);
+    }
+
+    private static void ApplyMoveTo(PdfPathBuilder builder, Stack<string> operands)
+    {
+        var y = PopNumber(operands);
+        var x = PopNumber(operands);
+        builder.MoveTo(x, y);
+    }
+
+    private static void ApplyLineTo(PdfPathBuilder builder, Stack<string> operands)
+    {
+        var y = PopNumber(operands);
+        var x = PopNumber(operands);
+        builder.LineTo(x, y);
+    }
+
+    private static void ApplyCurveTo(PdfPathBuilder builder, Stack<string> operands)
+    {
+        var y3 = PopNumber(operands);
+        var x3 = PopNumber(operands);
+        var y2 = PopNumber(operands);
+        var x2 = PopNumber(operands);
+        var y1 = PopNumber(operands);
+        var x1 = PopNumber(operands);
+        builder.CurveTo(x1, y1, x2, y2, x3, y3);
     }
 
     private static double PopNumber(Stack<string> operands)
