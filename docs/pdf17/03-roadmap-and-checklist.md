@@ -47,6 +47,30 @@
 - XObject / Image / Form 合成
 - 実ラスタライズ出力
 
+### Wave 6 RENDER-TEXT-001 / RENDER-COLOR-001 実装詳細
+
+**実装済み（`PdfLibrary.Core`）- フェーズ 6.1-6.4**:
+- `PdfTextState` — テキスト状態管理（フォント、行列、スケーリング等）
+- `PdfFontResolver` — フォント辞書解決と型判定（単純/複合フォント）
+- `PdfTextRenderer` — テキスト演算子実装（`BT` `ET` `Tf` `Td` `TD` `T*` `Tm` `Tw` `Tc` `TL` `Tz` `Tj` `TJ`）
+- `PdfTextRun` / `PdfTextRenderCommand` — テキスト描画コマンド表現
+- `PdfColorSpace` 基底 + 実装（`DeviceRGB`, `DeviceCMYK`, `DeviceGray`, `CalRGB`, `CalGray`）
+- `PdfColor` — 色成分管理と正規化（CMYK⇄RGB変換）
+- `PdfPageRenderer` テキスト・色演算子統合（`cs` `CS` `sc` `SC` `scn` `SCn`）
+
+**Wave 6 の仕様判断**:
+- テキストレイアウト精度：簡易版（グリフ幅 500/1000 フォントサイズを既定）で開始、段階導入で強化
+- CID フォント（複合フォント）：ToUnicode CMap 未実装、基本的な 2 バイト CID 処理のみ
+- 色成分設定：成分数不一致時は silent 無視（既定値保持）
+- Pattern / Shading：当面未対応（Wave 6.5+）
+
+**未対応**:
+- テキストレイアウト エンジン統合
+- CFF フォント内部形式解析
+- グリフラスタライズ
+- Pattern, Shading の詳細対応
+- 実ラスタ出力（PNG/JPEG）
+
 ### Wave 4 SIGN-001 実装詳細
 
 **ライブラリ責務（実装済み）**:
