@@ -754,9 +754,11 @@ internal static class Program
 
         var strokeResult = renderDocument.RenderPage(0);
         Assert.Equal(1, strokeResult.Commands.Count, "stroke コマンド数が一致しません。");
-        Assert.Equal(PdfPathPaintingOperator.Stroke, strokeResult.Commands[0].Operator, "stroke 演算子が一致しません。");
-        Assert.Equal(5, strokeResult.Commands[0].Path.Segments.Count, "stroke パスのセグメント数が一致しません。");
-        var strokeLine1 = strokeResult.Commands[0].Path.Segments[1].Points[0];
+        Assert.True(strokeResult.Commands[0] is PdfPathRenderCommand, "コマンドが PdfPathRenderCommand である必要があります。");
+        var strokeCommand = (PdfPathRenderCommand)strokeResult.Commands[0];
+        Assert.Equal(PdfPathPaintingOperator.Stroke, strokeCommand.Operator, "stroke 演算子が一致しません。");
+        Assert.Equal(5, strokeCommand.Path.Segments.Count, "stroke パスのセグメント数が一致しません。");
+        var strokeLine1 = strokeCommand.Path.Segments[1].Points[0];
         Assert.True(Math.Abs(strokeLine1.X - 30) < 0.0001 && Math.Abs(strokeLine1.Y - 10) < 0.0001, "l 演算子の座標順 (x,y) が不正です。");
         var fillDocument = PdfDocument.Create();
         var fillStream1 = fillDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("0 0 1 0 5 5 cm")));
@@ -769,9 +771,11 @@ internal static class Program
 
         var fillResult = fillDocument.RenderPage(0);
         Assert.Equal(1, fillResult.Commands.Count, "fill コマンド数が一致しません。");
-        Assert.Equal(PdfPathPaintingOperator.Fill, fillResult.Commands[0].Operator, "fill 演算子が一致しません。");
-        Assert.Equal(5, fillResult.Commands[0].Path.Segments.Count, "fill パスのセグメント数が一致しません。");
-        var fillStart = fillResult.Commands[0].Path.Segments[0].Points[0];
+        Assert.True(fillResult.Commands[0] is PdfPathRenderCommand, "コマンドが PdfPathRenderCommand である必要があります。");
+        var fillCommand = (PdfPathRenderCommand)fillResult.Commands[0];
+        Assert.Equal(PdfPathPaintingOperator.Fill, fillCommand.Operator, "fill 演算子が一致しません。");
+        Assert.Equal(5, fillCommand.Path.Segments.Count, "fill パスのセグメント数が一致しません。");
+        var fillStart = fillCommand.Path.Segments[0].Points[0];
         Assert.True(Math.Abs(fillStart.X - 5) < 0.0001 && Math.Abs(fillStart.Y - 5) < 0.0001, "cm の平行移動が反映されていません。");
 
         var stateDocument = PdfDocument.Create();
@@ -784,10 +788,14 @@ internal static class Program
 
         var stateResult = stateDocument.RenderPage(0);
         Assert.Equal(2, stateResult.Commands.Count, "q/Q を含むコマンド数が一致しません。");
-        Assert.Equal(PdfPathPaintingOperator.Fill, stateResult.Commands[0].Operator, "1つ目の描画演算子が一致しません。");
-        Assert.Equal(PdfPathPaintingOperator.Stroke, stateResult.Commands[1].Operator, "2つ目の描画演算子が一致しません。");
-        var translated = stateResult.Commands[0].Path.Segments[0].Points[0];
-        var restored = stateResult.Commands[1].Path.Segments[0].Points[0];
+        Assert.True(stateResult.Commands[0] is PdfPathRenderCommand, "1つ目のコマンドが PdfPathRenderCommand である必要があります。");
+        Assert.True(stateResult.Commands[1] is PdfPathRenderCommand, "2つ目のコマンドが PdfPathRenderCommand である必要があります。");
+        var stateCommand1 = (PdfPathRenderCommand)stateResult.Commands[0];
+        var stateCommand2 = (PdfPathRenderCommand)stateResult.Commands[1];
+        Assert.Equal(PdfPathPaintingOperator.Fill, stateCommand1.Operator, "1つ目の描画演算子が一致しません。");
+        Assert.Equal(PdfPathPaintingOperator.Stroke, stateCommand2.Operator, "2つ目の描画演算子が一致しません。");
+        var translated = stateCommand1.Path.Segments[0].Points[0];
+        var restored = stateCommand2.Path.Segments[0].Points[0];
         Assert.True(Math.Abs(translated.X - 20) < 0.0001, "q/cm 適用結果が不正です。");
         Assert.True(Math.Abs(restored.X) < 0.0001, "Q 後に graphics state が復元されていません。");
 
@@ -810,6 +818,52 @@ internal static class Program
         Assert.Throws<NotSupportedException>(
             () => invalidOperatorDocument.RenderPage(0),
             "未対応演算子で例外が発生しませんでした。");
+
+        // Wave 6: テキスト・色演算子テスト
+        TestTextAndColorOperators();
+    }
+
+    private static void TestTextAndColorOperators()
+    {
+        // テキスト演算子の基本テスト
+        var textDocument = PdfDocument.Create();
+        var textStream = textDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(
+            "BT /F1 12 Tf 10 20 Td (Hello) Tj ET")));
+        textDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = textStream.Reference,
+            ["Resources"] = new PdfDictionary
+            {
+                ["Font"] = new PdfDictionary
+                {
+                    ["F1"] = new PdfDictionary
+                    {
+                        ["Type"] = new PdfName("Font"),
+                        ["Subtype"] = new PdfName("Type1"),
+                        ["BaseFont"] = new PdfName("Helvetica"),
+                    },
+                },
+            },
+        });
+
+        var textResult = textDocument.RenderPage(0);
+        Assert.True(textResult.Commands.Count > 0, "テキスト描画コマンドが生成されていません。");
+        Assert.True(textResult.Commands.Any(c => c is PdfTextRenderCommand), "PdfTextRenderCommand が見つかりません。");
+
+        // 色空間設定のテスト
+        var colorDocument = PdfDocument.Create();
+        var colorStream = colorDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(
+            "0 0 10 10 re /DeviceRGB cs 1 0 0 sc f")));
+        colorDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = colorStream.Reference,
+        });
+
+        var colorResult = colorDocument.RenderPage(0);
+        Assert.True(colorResult.Commands.Count > 0, "色演算子コマンドが生成されていません。");
+        Assert.True(colorResult.Commands[0] is PdfPathRenderCommand, "パスコマンドが見つかりません。");
     }
 }
 
