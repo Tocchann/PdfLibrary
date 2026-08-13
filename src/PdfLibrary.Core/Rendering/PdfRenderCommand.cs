@@ -1,3 +1,11 @@
 namespace PdfLibrary.Core.Rendering;
 
-public sealed record PdfRenderCommand(PdfPathPaintingOperator Operator, PdfRenderPath Path);
+/// <summary>
+/// 描画コマンドの基底クラス。
+/// </summary>
+public abstract record PdfRenderCommand;
+
+/// <summary>
+/// パス描画コマンド。
+/// </summary>
+public sealed record PdfPathRenderCommand(PdfPathPaintingOperator Operator, PdfRenderPath Path) : PdfRenderCommand;

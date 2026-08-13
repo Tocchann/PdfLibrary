@@ -3,12 +3,16 @@ namespace PdfLibrary.Core.Rendering;
 public sealed class PdfRenderContext
 {
     private readonly Stack<PdfGraphicsState> _stateStack = [];
+    private readonly Stack<PdfTextState> _textStateStack = [];
+    private readonly Stack<PdfColor> _strokingColorStack = [];
+    private readonly Stack<PdfColor> _nonStrokingColorStack = [];
     private readonly List<PdfRenderCommand> _commands = [];
 
     public PdfRenderContext(PdfArray mediaBox)
     {
         ArgumentNullException.ThrowIfNull(mediaBox);
         MediaBox = mediaBox;
+        InitializeColors();
     }
 
     public PdfArray MediaBox { get; }
@@ -17,9 +21,39 @@ public sealed class PdfRenderContext
 
     public PdfRenderPath CurrentPath { get; } = new();
 
+    /// <summary>
+    /// テキスト描画状態。
+    /// </summary>
+    public PdfTextState TextState { get; private set; } = new();
+
+    /// <summary>
+    /// ストロークカラー（線色）。
+    /// </summary>
+    public PdfColor StrokingColor { get; set; } = null!;
+
+    /// <summary>
+    /// 非ストロークカラー（塗り色）。
+    /// </summary>
+    public PdfColor NonStrokingColor { get; set; } = null!;
+
+    private void InitializeColors()
+    {
+        var grayColorSpace = new PdfDeviceGrayColorSpace();
+        StrokingColor = new PdfColor { ColorSpace = grayColorSpace };
+        StrokingColor.SetComponents(0.0);
+        NonStrokingColor = new PdfColor { ColorSpace = grayColorSpace };
+        NonStrokingColor.SetComponents(0.0);
+    }
+
     public IReadOnlyList<PdfRenderCommand> Commands => _commands.AsReadOnly();
 
-    public void SaveGraphicsState() => _stateStack.Push(GraphicsState.Clone());
+    public void SaveGraphicsState()
+    {
+        _stateStack.Push(GraphicsState.Clone());
+        _textStateStack.Push(TextState.Clone());
+        _strokingColorStack.Push(StrokingColor.Clone());
+        _nonStrokingColorStack.Push(NonStrokingColor.Clone());
+    }
 
     public void RestoreGraphicsState()
     {
@@ -29,6 +63,17 @@ public sealed class PdfRenderContext
         }
 
         GraphicsState = _stateStack.Pop();
+        TextState = _textStateStack.Pop();
+
+        if (_strokingColorStack.Count > 0)
+        {
+            StrokingColor = _strokingColorStack.Pop();
+        }
+
+        if (_nonStrokingColorStack.Count > 0)
+        {
+            NonStrokingColor = _nonStrokingColorStack.Pop();
+        }
     }
 
     public void RecordPath(PdfPathPaintingOperator paintingOperator)
@@ -39,7 +84,17 @@ public sealed class PdfRenderContext
             snapshot.Add(segment);
         }
 
-        _commands.Add(new PdfRenderCommand(paintingOperator, snapshot));
+        _commands.Add(new PdfPathRenderCommand(paintingOperator, snapshot));
         CurrentPath.Clear();
+    }
+
+    /// <summary>
+    /// テキスト実行をコマンドとして記録します。
+    /// </summary>
+    /// <param name="textRun">テキスト実行。</param>
+    public void RecordTextRun(PdfTextRun textRun)
+    {
+        ArgumentNullException.ThrowIfNull(textRun);
+        _commands.Add(new PdfTextRenderCommand(textRun, NonStrokingColor.Clone()));
     }
 }
