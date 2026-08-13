@@ -17,7 +17,7 @@ public sealed class PdfRenderContext
 
     public PdfRenderPath CurrentPath { get; } = new();
 
-    public IReadOnlyList<PdfRenderCommand> Commands => _commands;
+    public IReadOnlyList<PdfRenderCommand> Commands => _commands.AsReadOnly();
 
     public void SaveGraphicsState() => _stateStack.Push(GraphicsState.Clone());
 
