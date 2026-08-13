@@ -1,5 +1,6 @@
 using System.Text;
 using PdfLibrary.Core;
+using PdfLibrary.Core.Rendering;
 
 internal static class Program
 {
@@ -362,6 +363,9 @@ internal static class Program
 
         // --- XMP Metadata (14.3) ---
         TestXmpMetadata();
+
+        // --- Wave 5: Rendering ---
+        TestRendering();
 
         Console.WriteLine("PdfLibrary.Core tests passed.");
     }
@@ -736,6 +740,75 @@ internal static class Program
         Assert.True(reloadedFilteredMetadataDoc.GetXmpMetadata() is null, "Filter 付き Metadata stream のデータが取得できてしまいます。");
 
         Assert.True(syncedText.Contains("begin=\"\uFEFF\"", StringComparison.Ordinal), "xpacket begin に UTF-8 BOM 文字が設定されていません。");
+    }
+
+    private static void TestRendering()
+    {
+        var renderDocument = PdfDocument.Create();
+        var strokeStream = renderDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("10 10 m 30 10 l 30 30 l 10 30 l h S")));
+        renderDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = strokeStream.Reference,
+        });
+
+        var strokeResult = renderDocument.RenderPage(0);
+        Assert.Equal(1, strokeResult.Commands.Count, "stroke コマンド数が一致しません。");
+        Assert.Equal(PdfPathPaintingOperator.Stroke, strokeResult.Commands[0].Operator, "stroke 演算子が一致しません。");
+        Assert.Equal(5, strokeResult.Commands[0].Path.Segments.Count, "stroke パスのセグメント数が一致しません。");
+
+        var fillDocument = PdfDocument.Create();
+        var fillStream1 = fillDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("0 0 1 0 5 5 cm")));
+        var fillStream2 = fillDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("0 0 10 10 re f")));
+        fillDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = new PdfArray { fillStream1.Reference, fillStream2.Reference },
+        });
+
+        var fillResult = fillDocument.RenderPage(0);
+        Assert.Equal(1, fillResult.Commands.Count, "fill コマンド数が一致しません。");
+        Assert.Equal(PdfPathPaintingOperator.Fill, fillResult.Commands[0].Operator, "fill 演算子が一致しません。");
+        Assert.Equal(5, fillResult.Commands[0].Path.Segments.Count, "fill パスのセグメント数が一致しません。");
+        var fillStart = fillResult.Commands[0].Path.Segments[0].Points[0];
+        Assert.True(Math.Abs(fillStart.X - 5) < 0.0001 && Math.Abs(fillStart.Y - 5) < 0.0001, "cm の平行移動が反映されていません。");
+
+        var stateDocument = PdfDocument.Create();
+        var stateStream = stateDocument.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("q 1 0 0 1 20 0 cm 0 0 10 10 re f Q 0 0 10 10 re S")));
+        stateDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = stateStream.Reference,
+        });
+
+        var stateResult = stateDocument.RenderPage(0);
+        Assert.Equal(2, stateResult.Commands.Count, "q/Q を含むコマンド数が一致しません。");
+        Assert.Equal(PdfPathPaintingOperator.Fill, stateResult.Commands[0].Operator, "1つ目の描画演算子が一致しません。");
+        Assert.Equal(PdfPathPaintingOperator.Stroke, stateResult.Commands[1].Operator, "2つ目の描画演算子が一致しません。");
+        var translated = stateResult.Commands[0].Path.Segments[0].Points[0];
+        var restored = stateResult.Commands[1].Path.Segments[0].Points[0];
+        Assert.True(Math.Abs(translated.X - 20) < 0.0001, "q/cm 適用結果が不正です。");
+        Assert.True(Math.Abs(restored.X) < 0.0001, "Q 後に graphics state が復元されていません。");
+
+        var invalidStateDocument = PdfDocument.Create();
+        invalidStateDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("Q")),
+        });
+        Assert.Throws<InvalidOperationException>(
+            () => invalidStateDocument.RenderPage(0),
+            "Q 過多で例外が発生しませんでした。");
+
+        var invalidOperatorDocument = PdfDocument.Create();
+        invalidOperatorDocument.AddPage(new PdfDictionary
+        {
+            ["MediaBox"] = new PdfArray { new PdfNumber(0), new PdfNumber(0), new PdfNumber(100), new PdfNumber(100) },
+            ["Contents"] = new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes("10 10 m BT")),
+        });
+        Assert.Throws<NotSupportedException>(
+            () => invalidOperatorDocument.RenderPage(0),
+            "未対応演算子で例外が発生しませんでした。");
     }
 }
 

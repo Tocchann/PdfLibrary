@@ -2,7 +2,7 @@
 
 ## 1. 目的と適用範囲
 - 本 instruction は、`docs/pdf17` の既存文書を実装・PR運用に直接適用するための実行ルールである。
-- 対象は PDF 編集ライブラリ（構文、オブジェクトモデル、編集、保存、署名フィールド、添付）であり、レンダリング機能は対象外とする。
+- 対象は PDF 編集ライブラリ（構文、オブジェクトモデル、編集、保存、署名フィールド、添付）と、Wave 5 の最小レンダリング基盤とする。
 - 仕様の一次情報は `docs/pdf17/00` から `03` の文書とし、矛盾時はそちらを優先する。
 
 ## 2. 実装スコープ固定
@@ -21,7 +21,7 @@
 - 7.11.4 Embedded File Streams
 
 ### 2.3 Later（初期範囲外）
-- 8, 9, 10, 11（描画/レンダリング中心）
+- 9, 10, 11（テキスト描画、色空間高度対応、XObject/ページ合成）
 - 13（マルチメディア/3D）
 - 14.7+（Tagged PDF 詳細）
 
@@ -31,8 +31,16 @@
   Wave 1: `DOC-EDIT-001` `PAGE-EDIT-001` `SAVE-INC-001`  
   Wave 2: `ANNO-EDIT-001` `BOOKMARK-001`  
   Wave 3: `FORM-001` `FILE-ATTACH-001`  
-  Wave 4: `SIGN-001`
+  Wave 4: `SIGN-001`  
+  Wave 5: `RENDER-CTX-001` `RENDER-PATH-001`
 - 1つの PR で複数 Feature ID を扱う場合、相互依存があるものだけに限定する。
+
+## 3.1 Wave 5 レンダリング実装境界
+- Wave 5 は `q` `Q` `cm` `m` `l` `c` `h` `re` `S` `f` `B` のみを対象とする。
+- `/Contents` は単一 stream、stream 参照、stream 配列の順序結合をサポートする。
+- `MediaBox` は必須入力とし、未設定ページは明示エラーにする。
+- 未対応演算子は黙殺せず明示エラーにする。
+- テキスト描画、色空間、XObject、透明グループ、クリッピング規則の詳細評価は Wave 6 以降へ送る。
 
 ## 4. オブジェクトモデル・編集規約
 - `02-object-model-and-edit-rules.md` の最小モデル（Catalog/PageTree/Page/Annot/Outline/AcroForm/Sig）を必須採用する。

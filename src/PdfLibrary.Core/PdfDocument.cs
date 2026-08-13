@@ -1,3 +1,5 @@
+using PdfLibrary.Core.Rendering;
+
 namespace PdfLibrary.Core;
 
 public sealed class PdfDocument
@@ -496,6 +498,18 @@ public sealed class PdfDocument
         PdfDocumentWriter.Save(this, stream, options ?? PdfSaveOptions.Default);
     }
 
+    public PdfPageRenderResult RenderPage(int pageIndex)
+    {
+        var page = GetPageAt(pageIndex);
+        if (page.Value is not PdfDictionary pageDictionary)
+        {
+            throw new InvalidOperationException("ページオブジェクトが辞書ではありません。");
+        }
+
+        var renderer = new PdfPageRenderer();
+        return renderer.Render(pageDictionary, ResolveValue);
+    }
+
     public static PdfDocument Load(byte[] bytes)
     {
         var document = PdfDocumentReader.Read(bytes);
@@ -801,6 +815,9 @@ public sealed class PdfDocument
 
     private PdfIndirectObject GetObject(PdfReference reference)
         => _objects.First(item => item.ObjectNumber == reference.ObjectNumber && item.GenerationNumber == reference.GenerationNumber);
+
+    private PdfValue? ResolveValue(PdfReference reference)
+        => TryGetObject(reference, out var indirectObject) ? indirectObject?.Value : null;
 
     private bool TryGetObject(PdfReference reference, out PdfIndirectObject? indirectObject)
     {
