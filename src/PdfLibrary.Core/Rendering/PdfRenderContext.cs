@@ -4,8 +4,8 @@ public sealed class PdfRenderContext
 {
     private readonly Stack<PdfGraphicsState> _stateStack = [];
     private readonly Stack<PdfTextState> _textStateStack = [];
-    private readonly Stack<PdfColorSpace> _strokingColorSpaceStack = [];
-    private readonly Stack<PdfColorSpace> _nonStrokingColorSpaceStack = [];
+    private readonly Stack<PdfColor> _strokingColorStack = [];
+    private readonly Stack<PdfColor> _nonStrokingColorStack = [];
     private readonly List<PdfRenderCommand> _commands = [];
 
     public PdfRenderContext(PdfArray mediaBox)
@@ -51,8 +51,8 @@ public sealed class PdfRenderContext
     {
         _stateStack.Push(GraphicsState.Clone());
         _textStateStack.Push(TextState.Clone());
-        _strokingColorSpaceStack.Push(StrokingColor.ColorSpace.Clone());
-        _nonStrokingColorSpaceStack.Push(NonStrokingColor.ColorSpace.Clone());
+        _strokingColorStack.Push(StrokingColor.Clone());
+        _nonStrokingColorStack.Push(NonStrokingColor.Clone());
     }
 
     public void RestoreGraphicsState()
@@ -65,16 +65,14 @@ public sealed class PdfRenderContext
         GraphicsState = _stateStack.Pop();
         TextState = _textStateStack.Pop();
 
-        if (_strokingColorSpaceStack.Count > 0)
+        if (_strokingColorStack.Count > 0)
         {
-            var colorSpace = _strokingColorSpaceStack.Pop();
-            StrokingColor = new PdfColor { ColorSpace = colorSpace };
+            StrokingColor = _strokingColorStack.Pop();
         }
 
-        if (_nonStrokingColorSpaceStack.Count > 0)
+        if (_nonStrokingColorStack.Count > 0)
         {
-            var colorSpace = _nonStrokingColorSpaceStack.Pop();
-            NonStrokingColor = new PdfColor { ColorSpace = colorSpace };
+            NonStrokingColor = _nonStrokingColorStack.Pop();
         }
     }
 
