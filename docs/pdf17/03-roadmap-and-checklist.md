@@ -8,6 +8,7 @@
 | M2 | ドキュメント編集コア | ページ編集・文書情報更新・しおり更新が成立 | Wave 1, 2 ✅ |
 | M3 | 注釈/フォーム | 主要注釈SubtypeとAcroForm更新が成立 | Wave 2, 3 ✅ |
 | M4 | 署名・添付・運用補助 | 署名フィールド処理、添付編集、運用ガイド整備 | Wave 3, 4 ✅ |
+| M5 | 最小レンダリング基盤 | Graphics state / CTM / Contents 解釈とパス描画が成立 | Wave 5 ✅ |
 
 ## 2. 仕様準拠チェック（抜粋）
 
@@ -22,6 +23,29 @@
 | Form | フィールド木・Widget連携 | 12.7 | 実装済み |
 | Signature | ByteRange/Contents の整合性 | 12.8 | 実装済み |
 | Metadata | Info/XMP 同期方針 | 14.3 | 実装済み |
+| Rendering | q/Q/cm による graphics state と CTM 適用 | 8.4 | 実装済み |
+| Rendering | m/l/c/h/re と S/f/B によるパス描画コマンド化 | 8.5.2, 8.5.3 | 実装済み |
+| Rendering | `/Contents` 単一/参照/配列の順序解釈 | 7.8.3 | 実装済み |
+
+### Wave 5 RENDER-CTX-001 / RENDER-PATH-001 実装詳細
+
+**実装済み（`PdfLibrary.Core`）**:
+- `PdfDocument.RenderPage(int)` — ページ単位のレンダリング入口
+- `Rendering/PdfPageRenderer` — `/Contents` 解釈と演算子実行
+- `Rendering/PdfRenderContext` / `PdfGraphicsState` — graphics state stack と CTM 保持
+- `Rendering/PdfPathBuilder` — `m` `l` `c` `h` `re` のパス構築
+- `Rendering/PdfRenderCommand` — `S` `f` `B` の描画結果表現
+
+**Wave 5 の仕様判断**:
+- 出力はラスタ画像ではなく、まずは描画コマンド列として返す
+- 未対応演算子は `NotSupportedException` を返し、silent ignore しない
+- `Q` 過多やオペランド不足は `InvalidOperationException` を返す
+
+**未対応**:
+- テキスト描画（`BT` 系）
+- 色空間・色設定
+- XObject / Image / Form 合成
+- 実ラスタライズ出力
 
 ### Wave 4 SIGN-001 実装詳細
 
